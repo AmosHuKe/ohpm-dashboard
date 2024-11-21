@@ -1,0 +1,32 @@
+name: ohpm-dashboard
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - '.github/workflows/ohpm-dashboard.yml'
+      - 'action.yaml'
+      - 'main.go'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - '.github/workflows/ohpm-dashboard.yml'
+      - 'action.yaml'
+      - 'main.go'
+
+jobs:
+  ohpm-dashboard-job:
+    runs-on: ubuntu-latest
+    name: ohpm-dashboard
+    steps:
+      - name: run ohpm-dashboard
+        uses: AmosHuKe/ohpm-dashboard@main
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_repo: "https://github.com/AmosHuKe/ohpm-dashboard"
+          filename: "Example.md"
+          publisher_list: "6542179b6dad4e55f6635764"
+          package_list: ""
+          sort_field: "publishTime"
+          sort_mode: "asc"
