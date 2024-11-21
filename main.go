@@ -468,7 +468,7 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 		case 1:
 			// 已获取信息
 			// Base
-			name = "[" + value.Name + "](https://ohpm.openharmony.cn/#/cn/detail/" + value.Name + ")"
+			name = "[" + value.Name + "](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			version = "v" + value.Version
 			publishTime = "<strong>PublishTime:</strong> " + strconv.Itoa(value.PublishTime)
 			githubStars = ""

@@ -21,7 +21,7 @@ jobs:
     name: ohpm-dashboard
     steps:
       - name: run ohpm-dashboard
-        uses: AmosHuKe/ohpm-dashboard@v1
+        uses: AmosHuKe/ohpm-dashboard@main
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           github_repo: "https://github.com/AmosHuKe/ohpm-dashboard"
