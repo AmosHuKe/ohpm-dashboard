@@ -72,7 +72,7 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
         tempPath="${{ github.action_path }}/temp/repo"
-        go run ${{ github.action_path }}/main.go -githubToken ${{ inputs.github_token }} -filename $tempPath/${{ inputs.filename }} -publisherList ${{ inputs.publisher_list }} -packageList ${{ inputs.package_list }} -sortField ${{ inputs.sort_field }} -sortMode ${{ inputs.sort_mode }}
+        go run ${{ github.action_path }}/main.go -githubToken "${{ inputs.github_token }}" -filename $tempPath/${{ inputs.filename }} -publisherList "${{ inputs.publisher_list }}" -packageList "${{ inputs.package_list }}" -sortField "${{ inputs.sort_field }}" -sortMode "${{ inputs.sort_mode }}"
         cd $tempPath
         gh auth setup-git -h github.com
         git config user.name "${{ inputs.committer_username }}"
