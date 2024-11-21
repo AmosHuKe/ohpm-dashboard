@@ -1,0 +1,82 @@
+name: 'ohpm-dashboard'
+description: 'Package Dashboard Table (ohpm.openharmony.cn)'
+author: 'AmosHuKe'
+branding:
+  icon: activity
+  color: blue
+inputs:
+  github_token:
+    description: 'Github Token with repo permissions'
+    required: true
+  github_repo:
+    description: 'Github repo to be manipulated'
+    required: true
+  commit_message:
+    description: 'Commit message'
+    required: false
+    default: 'docs(ohpm-dashboard): ohpm-dashboard has updated readme'
+  committer_username:
+    description: 'Committer username'
+    required: false
+    default: 'github-actions[bot]'
+  committer_email:
+    description: 'Committer email'
+    required: false
+    default: '41898282+github-actions[bot]@users.noreply.github.com'
+  filename:
+    description: 'Filename in Github repo (github_repo)'
+    required: false
+    default: README.md
+  publisher_list:
+    description: 'https://ohpm.openharmony.cn/#/cn/publisher/6542179b6dad4e55f6635764 e.g 6542179b6dad4e55f6635764,xxx,xxx'
+    required: false
+  package_list:
+    description: 'e.g @candies/extended_text,@bb/xx,@cc/xx'
+    required: false
+  sort_field:
+    description: 'name | publishTime | ohpmLikes | githubStars'
+    required: false
+    default: name
+  sort_mode:
+    description: 'asc | desc'
+    required: false
+    default: asc
+runs:
+  using: 'composite'
+  steps:
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v4
+
+    - name: Set GitHub Path
+      run: echo "$GITHUB_ACTION_PATH" >> $GITHUB_PATH
+      shell: bash
+      env:
+        GITHUB_ACTION_PATH: ${{ github.action_path }}
+
+    - name: Clone repo
+      run: |
+        tempPath="${{ github.action_path }}/temp/repo"
+        git clone ${{ inputs.github_repo }} $tempPath
+        cd $tempPath
+      shell: bash
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: '${{ github.action_path }}/go.mod'
+        cache: false
+      id: go
+    
+    - name: Update Markdown
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        tempPath="${{ github.action_path }}/temp/repo"
+        go run ${{ github.action_path }}/main.go -githubToken ${{ inputs.github_token }} -filename $tempPath/${{ inputs.filename }} -publisherList ${{ inputs.publisher_list }} -packageList ${{ inputs.package_list }} -sortField ${{ inputs.sort_field }} -sortMode ${{ inputs.sort_mode }}
+        cd $tempPath
+        gh auth setup-git -h github.com
+        git config user.name "${{ inputs.committer_username }}"
+        git config user.email "${{ inputs.committer_email }}"
+        git commit -a -m "${{ inputs.commit_message }}"
+        git push
+      shell: bash
