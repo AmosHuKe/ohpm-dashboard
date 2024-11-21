@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -39,7 +40,7 @@ type PackageInfo struct {
 	Description            string
 	Homepage               string
 	Repository             string
-	PublishTime            string
+	PublishTime            int
 	Points                 int
 	Likes                  int
 	Popularity             int
@@ -73,7 +74,7 @@ type PackageBaseInfo struct {
 		Version     string `json:"version"`
 		Homepage    string `json:"homepage"`
 		Repository  string `json:"repository"`
-		PublishTime string `json:"publishTime"`
+		PublishTime int    `json:"publishTime"`
 		Points      int    `json:"points"`
 		Likes       int    `json:"likes"`
 		Popularity  int    `json:"popularity"`
@@ -141,7 +142,7 @@ func getPublisherPackages(publisherId string) string {
 		pageIndex := 1
 		for pageIndex != 0 {
 			fmt.Println("🌏🔗 Publisher: " + publisherId + ", Page: " + strconv.Itoa(pageIndex))
-			res, err := http.Get("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search??publisherId=" + publisherId + "&pageNum=" + strconv.Itoa(pageIndex) + "&pageSize=10&sortedType=latest&isHomePage=false&condition=")
+			res, err := http.Get("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?publisherId=" + publisherId + "&pageNum=" + strconv.Itoa(pageIndex) + "&pageSize=10&sortedType=latest&isHomePage=false&condition=")
 			if err != nil {
 				fmt.Println(printErrTitle, err)
 			}
@@ -183,7 +184,7 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 		}
 		fmt.Println("📦🔥 " + value)
 		packageName := strings.TrimSpace(value)
-		res, err := http.Get("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/detail/" + packageName)
+		res, err := http.Get("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/detail/" + url.PathEscape(packageName))
 		if err != nil {
 			fmt.Println(printErrTitle, err)
 		}
@@ -206,6 +207,10 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 				Homepage:    data.Body.Homepage,
 				Repository:  data.Body.Repository,
 				PublishTime: data.Body.PublishTime,
+				Points:      data.Body.Points,
+				Likes:       data.Body.Likes,
+				Popularity:  data.Body.Popularity,
+				Downloads:   data.Body.Downloads,
 				Description: getPackageDescriptionInfo(data.Body.Name),
 			}
 			getGithubInfo(githubToken, &packageInfo)
@@ -230,7 +235,7 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 // [packageName] 单个 package 名称
 func getPackageDescriptionInfo(packageName string) string {
 	printErrTitle := "📦⚠️ PackageDescriptionInfo: "
-	res, err := http.Get("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?condition=name:" + packageName + "&pageNum=1&pageSize=10&sortedType=relevancy&isHomePage=false")
+	res, err := http.Get("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?condition=name:" + url.PathEscape(packageName) + "&pageNum=1&pageSize=10&sortedType=relevancy&isHomePage=false")
 	if err != nil {
 		fmt.Println(printErrTitle, err)
 	}
@@ -465,11 +470,11 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 			// Base
 			name = "[" + value.Name + "](https://ohpm.openharmony.cn/#/cn/detail/" + value.Name + ")"
 			version = "v" + value.Version
-			publishTime = "<strong>PublishTime:</strong> " + value.PublishTime
+			publishTime = "<strong>PublishTime:</strong> " + strconv.Itoa(value.PublishTime)
 			githubStars = ""
-			ohpmLikes = "[OHPM Likes: " + strconv.Itoa(value.Likes) + "](https://ohpm.openharmony.cn/#/cn/detail/" + value.Name + ")"
-			points = "[OHPM Points: " + strconv.Itoa(value.Points) + "](https://ohpm.openharmony.cn/#/cn/detail/" + value.Name + ")"
-			popularity = "[OHPM Popularity: " + strconv.Itoa(value.Popularity) + "](https://ohpm.openharmony.cn/#/cn/detail/" + value.Name + ")"
+			ohpmLikes = "[Likes(" + strconv.Itoa(value.Likes) + ")](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			points = "[Points(" + strconv.Itoa(value.Points) + ")](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			popularity = "[Popularity(" + strconv.Itoa(value.Popularity) + ")](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			issues = "-"
 			pullRequests = "-"
 
@@ -482,7 +487,7 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 				} else {
 					licenseName += "-"
 				}
-				githubStars = "[GitHub Stars: " + strconv.Itoa(value.GithubBaseInfo.StargazersCount) + "](https://github.com/" + githubURL + ")"
+				githubStars = "[Stars(" + strconv.Itoa(value.GithubBaseInfo.StargazersCount) + ")](https://github.com/" + githubURL + ")"
 				issues = "[![GitHub issues](https://img.shields.io/github/issues/" + githubURL + "?label=)](https://github.com/" + githubURL + "/issues)"
 				pullRequests = "[![GitHub pull requests](https://img.shields.io/github/issues-pr/" + githubURL + "?label=)](https://github.com/" + githubURL + "/pulls)"
 
