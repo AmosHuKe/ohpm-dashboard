@@ -34,7 +34,7 @@ inputs:
     description: 'e.g @candies/extended_text,@bb/xx,@cc/xx'
     required: false
   sort_field:
-    description: 'name | publishTime | ohpmLikes | githubStars'
+    description: 'name | publishTime | ohpmLikes | ohpmDownloads | githubStars'
     required: false
     default: name
   sort_mode:

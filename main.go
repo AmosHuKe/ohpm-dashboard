@@ -18,18 +18,19 @@ import (
 
 // 主 MarkdownTable
 type MarkdownTable struct {
-	Name         string
-	Version      string
-	Description  string
-	LicenseName  string
-	PublishTime  string
-	GithubStars  string
-	OhpmLikes    string
-	Points       string
-	Popularity   string
-	Issues       string
-	PullRequests string
-	Contributors string
+	Name          string
+	Version       string
+	Description   string
+	LicenseName   string
+	PublishTime   string
+	GithubStars   string
+	OhpmLikes     string
+	OhpmDownloads string
+	Points        string
+	Popularity    string
+	Issues        string
+	PullRequests  string
+	Contributors  string
 }
 
 // 主 Package 信息
@@ -37,6 +38,7 @@ type PackageInfo struct {
 	Code                   int // 0: error 1：success
 	Name                   string
 	Version                string
+	LicenseName            string
 	Description            string
 	Homepage               string
 	Repository             string
@@ -72,6 +74,7 @@ type PackageBaseInfo struct {
 	Body struct {
 		Name        string `json:"name"`
 		Version     string `json:"version"`
+		License     string `json:"license"`
 		Homepage    string `json:"homepage"`
 		Repository  string `json:"repository"`
 		PublishTime int    `json:"publishTime"`
@@ -104,7 +107,7 @@ func main() {
 	flag.StringVar(&filename, "filename", "README.md", "文件名 如: README.md")
 	flag.StringVar(&publisherList, "publisherList", "", "publisher ID https://ohpm.openharmony.cn/#/cn/publisher/6542179b6dad4e55f6635764 如: 6542179b6dad4e55f6635764,xxx,xxx")
 	flag.StringVar(&packageList, "packageList", "", "package 如: @candies/extended_text,@bb/xx,@cc/xx")
-	flag.StringVar(&sortField, "sortField", "name", "name | publishTime | ohpmLikes | githubStars")
+	flag.StringVar(&sortField, "sortField", "name", "name | publishTime | ohpmLikes | ohpmDownloads | githubStars")
 	flag.StringVar(&sortMode, "sortMode", "asc", "asc | desc")
 	flag.Parse()
 
@@ -204,6 +207,7 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 				Code:        1,
 				Name:        data.Body.Name,
 				Version:     data.Body.Version,
+				LicenseName: data.Body.License,
 				Homepage:    data.Body.Homepage,
 				Repository:  data.Body.Repository,
 				PublishTime: data.Body.PublishTime,
@@ -376,7 +380,7 @@ func formatGithubInfo(value string) (string, string) {
 
 // 排序
 // [packageInfoList] 	信息列表
-// [sortField] 				排序字段 可选：name(default) | publishTime | ohpmLikes | githubStars
+// [sortField] 				排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
 // [sortMode] 				排序方式 可选：asc(default) | desc
 func sortPackageInfo(packageInfoList []PackageInfo, sortField string, sortMode string) {
 	switch sortField {
@@ -422,6 +426,20 @@ func sortPackageInfo(packageInfoList []PackageInfo, sortField string, sortMode s
 				return iData < jData
 			}
 		})
+	case "ohpmDownloads":
+		// 按 ohpm downloads 排序
+		sort.SliceStable(packageInfoList, func(i, j int) bool {
+			iData := packageInfoList[i].Downloads
+			jData := packageInfoList[j].Downloads
+			switch sortMode {
+			case "asc":
+				return iData < jData
+			case "desc":
+				return iData > jData
+			default:
+				return iData < jData
+			}
+		})
 	case "githubStars":
 		// 按 github stars 排序
 		sort.SliceStable(packageInfoList, func(i, j int) bool {
@@ -455,12 +473,12 @@ func sortPackageInfo(packageInfoList []PackageInfo, sortField string, sortMode s
 
 // 组装表格内容
 // [packageInfoList] 	信息列表
-// [sortField] 				排序字段 可选：name(default) | publishTime | ohpmLikes | githubStars
+// [sortField] 				排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
 // [sortMode] 				排序方式 可选：asc(default) | desc
 func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) string {
 	markdownTableList := []MarkdownTable{}
 	for _, value := range packageInfoList {
-		var name, version, licenseName, publishTime, githubStars, ohpmLikes, points, popularity, issues, pullRequests, contributors string
+		var name, version, licenseName, publishTime, githubStars, ohpmLikes, ohpmDownloads, points, popularity, issues, pullRequests, contributors string
 		switch value.Code {
 		case 0:
 			// 无法获取信息
@@ -471,9 +489,16 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 			const ohpmLogo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAMAAAC6V+0/AAAA6lBMVEUAAABswm92x09tw2pCq+xhvItMsM9Qs8FhvIxhvI9Bq+1mvn5rwm9OssdqwnFhvI1FreJTtLdowHdMsM1lvoJvxGJJr9hQssJ6yUNeupdXtq1auKJlvoNCq+tFrONJr9ZlvoJzxVlGreFwxGFQssNauKJMscxeuphErOVlvoN6yUNDq+lIrtpTtLdov3lLsM9hvIxAqvJhvI1ErOZwxGB6yUNTtLhAqvF6yUNwxGJ6yUNlvoJeupdzxVlwxGB6yUNHrt1swm1swm1swmxXtq1Xtq1yxVtpwHZvw2RwxGFnv3tnv3t6yUN6yUPKo5kKAAAATnRSTlMABRQL+Ho1JiMeGxoRCKL+/Pz8+PPz8fHx8Ovk4dPOzszGxcKsqqCYh4F/fXp3d2xoZ2VhWlZRR0dBNTEvLiUhFvy9taGgmI+Nf2loaGciFjA1AAAAo0lEQVQY02MgDfCy6bqqqhtxIIuxq4kLSklL8svo8cDF2OSFVczYOW0MFIT4mKBiXEpi+rxgFre7kwlUUFtAB6aHkZERqlBWzgHM4GDV5GbyNGGw0LJnMGfRgCpjFfFmVlZk9pEwZTBkMYZqZrbmZLCzZWSyYsIqiKLdC6TdV8IU1SJLUTeQRShO4nEWtcRwPJ+jByMWb/LgChBE0LmAg45kAADNURSuaNgr4QAAAABJRU5ErkJggg=="
 			name = "[" + value.Name + "](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			version = "v" + value.Version
-			publishTime = "<strong>PublishTime:</strong> " + strconv.Itoa(value.PublishTime)
+			licenseName = "<strong>License:</strong> "
+			if value.LicenseName != "" {
+				licenseName += value.LicenseName
+			} else {
+				licenseName += "-"
+			}
+			publishTime = "<strong>PublishTime:</strong> " + timestampFormat(value.PublishTime)
 			githubStars = ""
 			ohpmLikes = "[![OHPM likes](https://img.shields.io/badge/" + strconv.Itoa(value.Likes) + "-_?style=social&logo=" + ohpmLogo + "&logoColor=168AFD&label=)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			ohpmDownloads = "[![OHPM downloads](https://img.shields.io/badge/" + strconv.Itoa(value.Points) + "-_?style=flat&label=Downloads&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			points = "[![OHPM points](https://img.shields.io/badge/" + strconv.Itoa(value.Points) + "-_?style=flat&label=Points&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			popularity = "[![OHPM popularity](https://img.shields.io/badge/" + strconv.Itoa(value.Popularity) + "-_?style=flat&label=Popularity&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			issues = "-"
@@ -482,12 +507,6 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 			// Github
 			if value.GithubUser != "" && value.GithubRepo != "" {
 				githubURL := value.GithubUser + "/" + value.GithubRepo
-				licenseName = "<strong>License:</strong> "
-				if value.GithubBaseInfo.License.Name != "" {
-					licenseName += value.GithubBaseInfo.License.Name
-				} else {
-					licenseName += "-"
-				}
 				githubStars = "[![GitHub stars](https://img.shields.io/github/stars/" + githubURL + "?style=social&logo=github&logoColor=1F2328&label=)](https://github.com/" + githubURL + ")"
 				issues = "[![GitHub issues](https://img.shields.io/github/issues/" + githubURL + "?label=)](https://github.com/" + githubURL + "/issues)"
 				pullRequests = "[![GitHub pull requests](https://img.shields.io/github/issues-pr/" + githubURL + "?label=)](https://github.com/" + githubURL + "/pulls)"
@@ -549,31 +568,32 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 		markdownTableList = append(
 			markdownTableList,
 			MarkdownTable{
-				Name:         name,
-				Version:      version,
-				Description:  value.Description,
-				LicenseName:  licenseName,
-				PublishTime:  publishTime,
-				GithubStars:  githubStars,
-				OhpmLikes:    ohpmLikes,
-				Points:       points,
-				Popularity:   popularity,
-				Issues:       issues,
-				PullRequests: pullRequests,
-				Contributors: contributors,
+				Name:          name,
+				Version:       version,
+				Description:   value.Description,
+				LicenseName:   licenseName,
+				PublishTime:   publishTime,
+				GithubStars:   githubStars,
+				OhpmLikes:     ohpmLikes,
+				OhpmDownloads: ohpmDownloads,
+				Points:        points,
+				Popularity:    popularity,
+				Issues:        issues,
+				PullRequests:  pullRequests,
+				Contributors:  contributors,
 			},
 		)
 	}
 
 	markdown := ""
 	markdown += "<sub>Sort by " + sortField + " | Total " + strconv.Itoa(len(markdownTableList)) + "</sub> \n\n" +
-		"| <sub>Package</sub> | <sub>Stars/Likes</sub> | <sub>Points / Popularity</sub> | <sub>Issues / Pull_requests</sub> | <sub>Contributors</sub> | \n" +
+		"| <sub>Package</sub> | <sub>Stars/Likes</sub> | <sub>Downloads/Popularity / Points</sub> | <sub>Issues / Pull_requests</sub> | <sub>Contributors</sub> | \n" +
 		"|--------------------|------------------------|------------------------------|-----------------------------------|:-----------------------:| \n"
 	for _, value := range markdownTableList {
 		markdown += "" +
 			"| " + value.Name + " <sup><strong>" + value.Version + "</strong></sup> <br/> <sub>" + formatString(value.Description) + "</sub> <br/> <sub>" + value.LicenseName + "</sub> <br/> <sub>" + value.PublishTime + "</sub>" +
 			" | " + value.GithubStars + " <br/> " + value.OhpmLikes +
-			" | " + value.Points + " <br/> " + value.Popularity +
+			" | " + value.OhpmDownloads + " <br/> " + value.Popularity + " <br/> " + value.Points +
 			" | " + value.Issues + " <br/> " + value.PullRequests +
 			" | " + value.Contributors +
 			" | \n"
@@ -663,4 +683,12 @@ func removeDuplicates(arr []string) []string {
 		uniqueArr = append(uniqueArr, k)
 	}
 	return uniqueArr
+}
+
+func timestampFormat(millisecondTimestamp int) string {
+	timestamp := int64(millisecondTimestamp)
+	seconds := timestamp / 1000
+	nanoseconds := (timestamp % 1000) * int64(time.Millisecond)
+	t := time.Unix(seconds, nanoseconds)
+	return t.Format(time.RFC3339)
 }

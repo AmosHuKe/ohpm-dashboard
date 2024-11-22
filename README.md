@@ -63,7 +63,7 @@ jobs:
 | filename | README.md | - | Markdown file <br/> e.g. "README.md" "test/test.md" |
 | publisher_list | - | - | Publisher ID (`,` split) <br/> https://ohpm.openharmony.cn/#/cn/publisher/6542179b6dad4e55f6635764 <br/> e.g. "6542179b6dad4e55f6635764,xxx,xxx" |
 | package_list | - | - | Package name (`,` split) <br/> e.g. "@candies/extended_text,@bb/xx,@cc/xx" |
-| sort_field | name | name, publishTime, ohpmLikes, githubStars | Sort field |
+| sort_field | name | name, publishTime, ohpmLikes, ohpmDownloads, githubStars | Sort field |
 | sort_mode | asc | asc, desc | Sort mode |
 
 ## Tips 💡
