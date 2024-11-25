@@ -498,7 +498,7 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 			publishTime = "<strong>PublishTime:</strong> " + timestampFormat(value.PublishTime)
 			githubStars = ""
 			ohpmLikes = "[![OHPM likes](https://img.shields.io/badge/" + strconv.Itoa(value.Likes) + "-_?style=social&logo=" + ohpmLogo + "&logoColor=168AFD&label=)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
-			ohpmDownloads = "[![OHPM downloads](https://img.shields.io/badge/" + strconv.Itoa(value.Points) + "-_?style=flat&label=Downloads&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			ohpmDownloads = "[![OHPM downloads](https://img.shields.io/badge/" + strconv.Itoa(value.Downloads) + "-_?style=flat&label=Downloads&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			points = "[![OHPM points](https://img.shields.io/badge/" + strconv.Itoa(value.Points) + "-_?style=flat&label=Points&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			popularity = "[![OHPM popularity](https://img.shields.io/badge/" + strconv.Itoa(value.Popularity) + "-_?style=flat&label=Popularity&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			issues = "-"
