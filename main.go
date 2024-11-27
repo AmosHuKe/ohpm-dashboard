@@ -507,12 +507,12 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 			publishTime = "<strong>PublishTime:</strong> " + timestampFormat(value.PublishTime)
 			githubStars = ""
 			ohpmLikes = "[![OHPM likes](https://img.shields.io/badge/" + strconv.Itoa(value.Likes) + "-_?style=social&logo=" + ohpmLogo + "&logoColor=168AFD&label=)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
-			ohpmDownloads = "[![OHPM downloads](https://img.shields.io/badge/" + strconv.Itoa(value.Downloads) + "-_?style=flat&logo=" + downloadIcon + "&logoColor=FFFFFF&labelColor=5EDE2E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
-			popularity = "[![OHPM popularity](https://img.shields.io/badge/" + strconv.Itoa(value.Popularity) + "-_?style=flat&logo=" + popularityIcon + "&logoColor=FFFFFF&labelColor=5EDE2E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			ohpmDownloads = "[![OHPM downloads](https://img.shields.io/badge/" + strconv.Itoa(value.Downloads) + "-_?style=flat&logo=" + downloadIcon + "&logoColor=FFFFFF&labelColor=4AC51C&color=4AC51C)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			popularity = "[![OHPM popularity](https://img.shields.io/badge/" + strconv.Itoa(value.Popularity) + "-_?style=flat&logo=" + popularityIcon + "&logoColor=FFFFFF&labelColor=4AC51C&color=4AC51C)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 
 			pointsValue := float64(value.Points)
 			maxPointsValue := float64(value.MaxPoints)
-			pointsBackgroundColor := "5EDE2E"
+			pointsBackgroundColor := "4AC51C"
 			if pointsValue < maxPointsValue {
 				pointsBackgroundColor = "95C30D"
 			}
