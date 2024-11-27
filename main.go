@@ -44,6 +44,7 @@ type PackageInfo struct {
 	Repository             string
 	PublishTime            int
 	Points                 int
+	MaxPoints              int
 	Likes                  int
 	Popularity             int
 	Downloads              int
@@ -82,6 +83,9 @@ type PackageBaseInfo struct {
 		Likes       int    `json:"likes"`
 		Popularity  int    `json:"popularity"`
 		Downloads   int    `json:"downloads"`
+		PointDetail struct {
+			Point int `json:"point"`
+		} `json:"pointDetail"`
 	} `json:"body"`
 }
 
@@ -212,6 +216,7 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 				Repository:  data.Body.Repository,
 				PublishTime: data.Body.PublishTime,
 				Points:      data.Body.Points,
+				MaxPoints:   data.Body.PointDetail.Point,
 				Likes:       data.Body.Likes,
 				Popularity:  data.Body.Popularity,
 				Downloads:   data.Body.Downloads,
@@ -487,6 +492,10 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 			// 已获取信息
 			// Base
 			const ohpmLogo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAMAAAC6V+0/AAAA6lBMVEUAAABswm92x09tw2pCq+xhvItMsM9Qs8FhvIxhvI9Bq+1mvn5rwm9OssdqwnFhvI1FreJTtLdowHdMsM1lvoJvxGJJr9hQssJ6yUNeupdXtq1auKJlvoNCq+tFrONJr9ZlvoJzxVlGreFwxGFQssNauKJMscxeuphErOVlvoN6yUNDq+lIrtpTtLdov3lLsM9hvIxAqvJhvI1ErOZwxGB6yUNTtLhAqvF6yUNwxGJ6yUNlvoJeupdzxVlwxGB6yUNHrt1swm1swm1swmxXtq1Xtq1yxVtpwHZvw2RwxGFnv3tnv3t6yUN6yUPKo5kKAAAATnRSTlMABRQL+Ho1JiMeGxoRCKL+/Pz8+PPz8fHx8Ovk4dPOzszGxcKsqqCYh4F/fXp3d2xoZ2VhWlZRR0dBNTEvLiUhFvy9taGgmI+Nf2loaGciFjA1AAAAo0lEQVQY02MgDfCy6bqqqhtxIIuxq4kLSklL8svo8cDF2OSFVczYOW0MFIT4mKBiXEpi+rxgFre7kwlUUFtAB6aHkZERqlBWzgHM4GDV5GbyNGGw0LJnMGfRgCpjFfFmVlZk9pEwZTBkMYZqZrbmZLCzZWSyYsIqiKLdC6TdV8IU1SJLUTeQRShO4nEWtcRwPJ+jByMWb/LgChBE0LmAg45kAADNURSuaNgr4QAAAABJRU5ErkJggg=="
+			const downloadIcon = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwxKSI+PHBhdGggZD0iTTMgMTlIMjFWMjFIM1YxOVpNMTMgOUgyMEwxMiAxN0w0IDlIMTFWMUgxM1Y5WiI+PC9wYXRoPjwvc3ZnPg=="
+			const popularityIcon = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwxKSI+PHBhdGggZmlsbD0ibm9uZSIgZD0iTTAgMGgyNHYyNEgweiI+PC9wYXRoPjxwYXRoIGQ9Ik0xMiAyM0M3Ljg1Nzg2IDIzIDQuNSAxOS42NDIxIDQuNSAxNS41QzQuNSAxMy4zNDYyIDUuNDA3ODYgMTEuNDA0NSA2Ljg2MTc5IDEwLjAzNjZDOC4yMDQwMyA4Ljc3Mzc1IDExLjUgNi40OTk1MSAxMSAxLjVDMTcgNS41IDIwIDkuNSAxNCAxNS41QzE1IDE1LjUgMTYuNSAxNS41IDE5IDEzLjAyOTZDMTkuMjY5NyAxMy44MDMyIDE5LjUgMTQuNjM0NSAxOS41IDE1LjVDMTkuNSAxOS42NDIxIDE2LjE0MjEgMjMgMTIgMjNaIj48L3BhdGg+PC9zdmc+"
+			const pointIcon = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwxKSI+PHBhdGggZD0iTTEuOTQ2MDcgOS4zMTU0M0MxLjQyMzUzIDkuMTQxMjUgMS40MTk0IDguODYwMjIgMS45NTY4MiA4LjY4MTA4TDIxLjA0MyAyLjMxOTAxQzIxLjU3MTUgMi4xNDI4NSAyMS44NzQ2IDIuNDM4NjYgMjEuNzI2NSAyLjk1Njk0TDE2LjI3MzMgMjIuMDQzMkMxNi4xMjIzIDIyLjU3MTYgMTUuODE3NyAyMi41OSAxNS41OTQ0IDIyLjA4NzZMMTEuOTk5OSAxNEwxNy45OTk5IDYuMDAwMDVMOS45OTk5MiAxMkwxLjk0NjA3IDkuMzE1NDNaIj48L3BhdGg+PC9zdmc+"
+
 			name = "[" + value.Name + "](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			version = "v" + value.Version
 			licenseName = "<strong>License:</strong> "
@@ -498,9 +507,26 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 			publishTime = "<strong>PublishTime:</strong> " + timestampFormat(value.PublishTime)
 			githubStars = ""
 			ohpmLikes = "[![OHPM likes](https://img.shields.io/badge/" + strconv.Itoa(value.Likes) + "-_?style=social&logo=" + ohpmLogo + "&logoColor=168AFD&label=)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
-			ohpmDownloads = "[![OHPM downloads](https://img.shields.io/badge/" + strconv.Itoa(value.Downloads) + "-_?style=flat&label=Downloads&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
-			points = "[![OHPM points](https://img.shields.io/badge/" + strconv.Itoa(value.Points) + "-_?style=flat&label=Points&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
-			popularity = "[![OHPM popularity](https://img.shields.io/badge/" + strconv.Itoa(value.Popularity) + "-_?style=flat&label=Popularity&labelColor=4CC71E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			ohpmDownloads = "[![OHPM downloads](https://img.shields.io/badge/" + strconv.Itoa(value.Downloads) + "-_?style=flat&logo=" + downloadIcon + "&logoColor=FFFFFF&labelColor=5EDE2E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			popularity = "[![OHPM popularity](https://img.shields.io/badge/" + strconv.Itoa(value.Popularity) + "-_?style=flat&logo=" + popularityIcon + "&logoColor=FFFFFF&labelColor=5EDE2E&color=5EDE2E)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+
+			pointsValue := float64(value.Points)
+			maxPointsValue := float64(value.MaxPoints)
+			pointsBackgroundColor := "5EDE2E"
+			if pointsValue < maxPointsValue {
+				pointsBackgroundColor = "95C30D"
+			}
+			if pointsValue < maxPointsValue*0.5 {
+				pointsBackgroundColor = "9FA226"
+			}
+			if pointsValue < maxPointsValue*0.2 {
+				pointsBackgroundColor = "D6AE22"
+			}
+			if pointsValue < maxPointsValue*0.1 {
+				pointsBackgroundColor = "D66049"
+			}
+			pointsText := strconv.Itoa(value.Points) + url.PathEscape("/") + strconv.Itoa(value.MaxPoints)
+			points = "[![OHPM points](https://img.shields.io/badge/" + pointsText + "-_?style=flat&logo=" + pointIcon + "&logoColor=FFFFFF&labelColor=" + pointsBackgroundColor + "&color=" + pointsBackgroundColor + ")](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			issues = "-"
 			pullRequests = "-"
 
