@@ -2,7 +2,7 @@
 
 Test  
 
-666 test <!-- md:OHPMDashboard-total begin -->6<!-- md:OHPMDashboard-total end --> test 6666
+Total: <!-- md:OHPMDashboard-total begin -->6<!-- md:OHPMDashboard-total end --> (xxx)  
 
 > Test  
 
@@ -25,6 +25,16 @@ Updated on 2024-11-27T06:53:42Z by [Action](https://github.com/AmosHuKe/ohpm-das
 
 Test  
 
-666 test <!-- md:OHPMDashboard-total begin -->6<!-- md:OHPMDashboard-total end --> test 6666
+Total: <!-- md:OHPMDashboard-total begin -->6<!-- md:OHPMDashboard-total end --> (xxx)  
+
+> Test  
+
+## Packages 2
+
+<!-- md:OHPMDashboard begin --><!-- md:OHPMDashboard end -->
+
+Test  
+
+Total: <!-- md:OHPMDashboard-total begin -->6<!-- md:OHPMDashboard-total end --> (xxx)  
 
 > Test  

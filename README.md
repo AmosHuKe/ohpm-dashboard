@@ -70,7 +70,7 @@ jobs:
 
 - ⁉️: Package not found
 - `publisher_list` and `package_list` are merged
-- The `Github link` is resolved by the `Homepage`, `Repository` of `ohpm.openharmony.cn`
+- The `Github link` is parsed by the `Homepage`, `Repository` of `ohpm.openharmony.cn`
 
 Thanks [Shields](https://github.com/badges/shields).
 
