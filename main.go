@@ -507,8 +507,8 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 			publishTime = "<strong>PublishTime:</strong> " + timestampFormat(value.PublishTime)
 			githubStars = ""
 			ohpmLikes = "[![OHPM likes](https://img.shields.io/badge/" + strconv.Itoa(value.Likes) + "-_?style=social&logo=" + ohpmLogo + "&logoColor=168AFD&label=)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
-			ohpmDownloads = "[![OHPM downloads](https://img.shields.io/badge/" + strconv.Itoa(value.Downloads) + "-_?style=flat&logo=" + downloadIcon + "&logoColor=FFFFFF&labelColor=4AC51C&color=4AC51C)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
-			popularity = "[![OHPM popularity](https://img.shields.io/badge/" + strconv.Itoa(value.Popularity) + "-_?style=flat&logo=" + popularityIcon + "&logoColor=FFFFFF&labelColor=4AC51C&color=4AC51C)](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			ohpmDownloads = "[![OHPM downloads](https://img.shields.io/badge/" + formatNumber(value.Downloads) + "-4AC51C?style=flat&logo=" + downloadIcon + ")](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			popularity = "[![OHPM popularity](https://img.shields.io/badge/" + formatNumber(value.Popularity) + "-4AC51C?style=flat&logo=" + popularityIcon + ")](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 
 			pointsValue := float64(value.Points)
 			maxPointsValue := float64(value.MaxPoints)
@@ -526,7 +526,7 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 				pointsBackgroundColor = "D66049"
 			}
 			pointsText := strconv.Itoa(value.Points) + url.PathEscape("/") + strconv.Itoa(value.MaxPoints)
-			points = "[![OHPM points](https://img.shields.io/badge/" + pointsText + "-_?style=flat&logo=" + pointIcon + "&logoColor=FFFFFF&labelColor=" + pointsBackgroundColor + "&color=" + pointsBackgroundColor + ")](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
+			points = "[![OHPM points](https://img.shields.io/badge/" + pointsText + "-" + pointsBackgroundColor + "?style=flat&logo=" + pointIcon + ")](https://ohpm.openharmony.cn/#/cn/detail/" + url.PathEscape(value.Name) + ")"
 			issues = "-"
 			pullRequests = "-"
 
@@ -688,12 +688,29 @@ func updateMarkdownPackageTotal(filename string, total int) error {
 	return nil
 }
 
-// 格式化字符串
 func formatString(v string) string {
 	value := v
 	value = strings.ReplaceAll(value, "\n", " ")
 	value = strings.ReplaceAll(value, "|", "丨")
 	return value
+}
+
+func formatNumber(num int) string {
+	var formatted, suffix string
+
+	if num >= 1000000 {
+		formatted = fmt.Sprintf("%.2f", float64(num)/1000000)
+		suffix = "M"
+	} else if num >= 1000 {
+		formatted = fmt.Sprintf("%.2f", float64(num)/1000)
+		suffix = "k"
+	} else {
+		return strconv.Itoa(num)
+	}
+
+	// 去掉多余的0和小数点
+	formatted = strings.TrimRight(strings.TrimRight(formatted, "0"), ".")
+	return formatted + suffix
 }
 
 // 去重
