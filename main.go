@@ -66,6 +66,7 @@ type GithubBaseInfo struct {
 
 type GithubContributorsInfo struct {
 	Login     string `json:"login"`
+	Id        int    `json:"id"`
 	AvatarUrl string `json:"avatar_url"`
 	HtmlUrl   string `json:"html_url"`
 	Type      string `json:"type"`
@@ -547,30 +548,30 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 					case 1:
 						contributors += `<tr align="center">`
 						contributors += `<td>`
-						contributors += `<a href="` + githubContributorsInfoList[0].HtmlUrl + `"><img width="36px" src="` + githubContributorsInfoList[0].AvatarUrl + `" /></a>`
+						contributors += `<a href="` + githubContributorsInfoList[0].HtmlUrl + `"><img width="36px" src="` + getGithubAvatarUrl(githubContributorsInfoList[0].Id) + `" /></a>`
 						contributors += `</td>`
 						contributors += `</tr>`
 					case 2:
 						contributors += `<tr align="center">`
 						contributors += `<td>`
-						contributors += `<a href="` + githubContributorsInfoList[0].HtmlUrl + `"><img width="30px" src="` + githubContributorsInfoList[0].AvatarUrl + `" /></a>`
+						contributors += `<a href="` + githubContributorsInfoList[0].HtmlUrl + `"><img width="30px" src="` + getGithubAvatarUrl(githubContributorsInfoList[0].Id) + `" /></a>`
 						contributors += `</td>`
 						contributors += `<td>`
-						contributors += `<a href="` + githubContributorsInfoList[1].HtmlUrl + `"><img width="30px" src="` + githubContributorsInfoList[1].AvatarUrl + `" /></a>`
+						contributors += `<a href="` + githubContributorsInfoList[1].HtmlUrl + `"><img width="30px" src="` + getGithubAvatarUrl(githubContributorsInfoList[1].Id) + `" /></a>`
 						contributors += `</td>`
 						contributors += `</tr>`
 					case 3:
 						contributors += `<tr align="center">`
 						contributors += `<td colspan="2">`
-						contributors += `<a href="` + githubContributorsInfoList[0].HtmlUrl + `"><img width="36px" src="` + githubContributorsInfoList[0].AvatarUrl + `" /></a>`
+						contributors += `<a href="` + githubContributorsInfoList[0].HtmlUrl + `"><img width="36px" src="` + getGithubAvatarUrl(githubContributorsInfoList[0].Id) + `" /></a>`
 						contributors += `</td>`
 						contributors += `</tr>`
 						contributors += `<tr align="center">`
 						contributors += `<td>`
-						contributors += `<a href="` + githubContributorsInfoList[1].HtmlUrl + `"><img width="30px" src="` + githubContributorsInfoList[1].AvatarUrl + `" /></a>`
+						contributors += `<a href="` + githubContributorsInfoList[1].HtmlUrl + `"><img width="30px" src="` + getGithubAvatarUrl(githubContributorsInfoList[1].Id) + `" /></a>`
 						contributors += `</td>`
 						contributors += `<td>`
-						contributors += `<a href="` + githubContributorsInfoList[2].HtmlUrl + `"><img width="30px" src="` + githubContributorsInfoList[2].AvatarUrl + `" /></a>`
+						contributors += `<a href="` + githubContributorsInfoList[2].HtmlUrl + `"><img width="30px" src="` + getGithubAvatarUrl(githubContributorsInfoList[2].Id) + `" /></a>`
 						contributors += `</td>`
 						contributors += `</tr>`
 					}
@@ -686,6 +687,12 @@ func updateMarkdownPackageTotal(filename string, total int) error {
 	}
 	fmt.Println("📄✅ updateMarkdownPackageTotal: Success")
 	return nil
+}
+
+// 由于直接获取 GithubContributorsInfo.AvatarUrl 有可能会是私有头像地址，
+// 暂时固定头像地址。
+func getGithubAvatarUrl(githubId int) string {
+	return "https://avatars.githubusercontent.com/u/" + strconv.Itoa(githubId) + "?v=4"
 }
 
 func formatString(v string) string {
