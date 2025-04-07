@@ -4,7 +4,7 @@
 
 ### Improvements
 
-- Bump Golang to 1.24.0
+- Bump Golang to 1.24.2
 
 ## 1.0.0
 
