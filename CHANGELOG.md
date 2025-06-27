@@ -5,6 +5,7 @@
 ### Improvements
 
 - Bump Golang to 1.24.2
+- Code formatting.
 
 ## 1.0.0
 

@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// 主 MarkdownTable
+// 主 MarkdownTable 用于存储每个 package 在 Markdown 表格中的展示信息
 type MarkdownTable struct {
 	Name          string
 	Version       string
@@ -33,7 +33,7 @@ type MarkdownTable struct {
 	Contributors  string
 }
 
-// 主 Package 信息
+// 主 Package 信息，聚合 package 所有相关的数据
 type PackageInfo struct {
 	Code                   int // 0: error 1：success
 	Name                   string
@@ -54,6 +54,7 @@ type PackageInfo struct {
 	GithubContributorsInfo []GithubContributorsInfo
 }
 
+// 每个 package 对应 Github 仓库的基础信息
 type GithubBaseInfo struct {
 	StargazersCount int `json:"stargazers_count"`
 	ForksCount      int `json:"forks_count"`
@@ -64,6 +65,7 @@ type GithubBaseInfo struct {
 	ContributorsTotal int
 }
 
+// 每个 package 对应 Github 仓库的贡献者基础信息
 type GithubContributorsInfo struct {
 	Login     string `json:"login"`
 	Id        int    `json:"id"`
@@ -72,6 +74,7 @@ type GithubContributorsInfo struct {
 	Type      string `json:"type"`
 }
 
+// ohpm.openharmony.cn package 基础信息
 type PackageBaseInfo struct {
 	Body struct {
 		Name        string `json:"name"`
@@ -90,6 +93,7 @@ type PackageBaseInfo struct {
 	} `json:"body"`
 }
 
+// ohpm.openharmony.cn package 描述信息
 type PackageDescriptionInfo struct {
 	Body struct {
 		Rows []struct {
@@ -98,6 +102,7 @@ type PackageDescriptionInfo struct {
 	} `json:"body"`
 }
 
+// ohpm.openharmony.cn publisher 下所有 package 信息
 type PublisherInfo struct {
 	Body struct {
 		Rows []struct {
@@ -116,22 +121,31 @@ func main() {
 	flag.StringVar(&sortMode, "sortMode", "asc", "asc | desc")
 	flag.Parse()
 
-	var packageAllList string
-	publisherPackageList := getPublisherPackages(publisherList)
-	packageAllList = publisherPackageList + "," + packageList
+	packageAllList := mergePackageList(publisherList, packageList)
 	packageInfoList := getPackageInfo(githubToken, packageAllList)
 	sortPackageInfo(packageInfoList, sortField, sortMode)
 	markdownTable := assembleMarkdownTable(packageInfoList, sortField)
 
 	// 更新表格
-	updateMarkdownTable(filename, markdownTable)
+	if err := updateMarkdownTable(filename, markdownTable); err != nil {
+		fmt.Println(err)
+	}
 	// 更新总数
-	updateMarkdownPackageTotal(filename, len(packageInfoList))
+	if err := updateMarkdownPackageTotal(filename, len(packageInfoList)); err != nil {
+		fmt.Println(err)
+	}
+}
+
+// 合并 publisher 的 package 和自定义 package 列表，并去重
+func mergePackageList(publisherList, packageList string) string {
+	publisherPackageList := getPublisherPackages(publisherList)
+	all := strings.Split(publisherPackageList+","+packageList, ",")
+	return strings.Join(removeDuplicates(all), ",")
 }
 
 // 通过 Publisher 获取所有 Package 名称
-// [publisherId] publisher ID 列表(逗号,分割)
-// Return 与 packageList 相同的 package 名称列表(逗号,分割)
+// - [publisherId] publisher ID 列表(逗号,分割)
+// @return 与 packageList 相同的 package 名称列表(逗号,分割)
 func getPublisherPackages(publisherId string) string {
 	printErrTitle := "🌏⚠️ PublisherPackages: "
 	if publisherId == "" {
@@ -149,38 +163,41 @@ func getPublisherPackages(publisherId string) string {
 		// 查找每一页
 		pageIndex := 1
 		for pageIndex != 0 {
-			fmt.Println("🌏🔗 Publisher: " + publisherId + ", Page: " + strconv.Itoa(pageIndex))
-			res, err := http.Get("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?publisherId=" + publisherId + "&pageNum=" + strconv.Itoa(pageIndex) + "&pageSize=10&sortedType=latest&isHomePage=false&condition=")
+			fmt.Printf("🌏🔗 Publisher: %s, Page: %d \n", publisherId, pageIndex)
+			res, err := http.Get(fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?publisherId=%s&pageNum=%d&pageSize=10&sortedType=latest&isHomePage=false&condition=", publisherId, pageIndex))
 			if err != nil {
 				fmt.Println(printErrTitle, err)
+				break
 			}
-			defer res.Body.Close()
 			jsonData, err := io.ReadAll(res.Body)
+			res.Body.Close()
 			if err != nil {
 				fmt.Println(printErrTitle, err)
+				break
 			}
 			data := PublisherInfo{}
-			if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
+			if err := json.Unmarshal(jsonData, &data); err != nil {
 				fmt.Println(printErrTitle, err)
+				break
 			}
-			if len(data.Body.Rows) > 0 {
-				for _, packageRow := range data.Body.Rows {
-					if packageRow.Name != "" {
-						packageNameList = append(packageNameList, packageRow.Name)
-					}
-				}
-				pageIndex++
-			} else {
+			if len(data.Body.Rows) == 0 {
 				pageIndex = 0
+				break
 			}
+			for _, packageRow := range data.Body.Rows {
+				if packageRow.Name != "" {
+					packageNameList = append(packageNameList, packageRow.Name)
+				}
+			}
+			pageIndex++
 		}
 	}
-	return strings.Join(packageNameList, ",")
+	return strings.Join(removeDuplicates(packageNameList), ",")
 }
 
-// 获取 Package 信息
-// [githubToken] Github Token
-// [packagesName] package 名称列表(逗号,分割)
+// 获取所有 Package 信息
+// - [githubToken] Github Token
+// - [packagesName] package 名称列表(逗号,分割)
 func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 	printErrTitle := "📦⚠️ PackageInfo: "
 	packageList := removeDuplicates(strings.Split(packagesName, ","))
@@ -192,70 +209,64 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 		}
 		fmt.Println("📦🔥 " + value)
 		packageName := strings.TrimSpace(value)
-		res, err := http.Get("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/detail/" + url.PathEscape(packageName))
+		res, err := http.Get(fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/detail/%s", url.PathEscape(packageName)))
 		if err != nil {
 			fmt.Println(printErrTitle, err)
 		}
-		defer res.Body.Close()
 		jsonData, err := io.ReadAll(res.Body)
+		res.Body.Close()
 		if err != nil {
 			fmt.Println(printErrTitle, err)
 		}
 		var data PackageBaseInfo
-		if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
+		if err := json.Unmarshal(jsonData, &data); err != nil {
 			fmt.Println(printErrTitle, err)
 		}
-
-		if data.Body.Name != "" {
-			// 可获取信息
-			packageInfo := PackageInfo{
-				Code:        1,
-				Name:        data.Body.Name,
-				Version:     data.Body.Version,
-				LicenseName: data.Body.License,
-				Homepage:    data.Body.Homepage,
-				Repository:  data.Body.Repository,
-				PublishTime: data.Body.PublishTime,
-				Points:      data.Body.Points,
-				MaxPoints:   data.Body.PointDetail.Point,
-				Likes:       data.Body.Likes,
-				Popularity:  data.Body.Popularity,
-				Downloads:   data.Body.Downloads,
-				Description: getPackageDescriptionInfo(data.Body.Name),
-			}
-			getGithubInfo(githubToken, &packageInfo)
-			packageInfoList = append(packageInfoList, packageInfo)
-			fmt.Println("📦✅ " + packageName + ", Code: 1")
-		} else {
+		if data.Body.Name == "" {
 			// 无法获取信息
-			packageInfoList = append(
-				packageInfoList,
-				PackageInfo{
-					Code: 0,
-					Name: packageName,
-				},
-			)
-			fmt.Println("📦❌ " + packageName + ", Code: 0")
+			packageInfoList = append(packageInfoList, PackageInfo{Code: 0, Name: packageName})
+			fmt.Printf("📦❌ %s, Code: 0\n", packageName)
+			continue
 		}
+
+		// 可获取信息
+		packageInfo := PackageInfo{
+			Code:        1,
+			Name:        data.Body.Name,
+			Version:     data.Body.Version,
+			LicenseName: data.Body.License,
+			Homepage:    data.Body.Homepage,
+			Repository:  data.Body.Repository,
+			PublishTime: data.Body.PublishTime,
+			Points:      data.Body.Points,
+			MaxPoints:   data.Body.PointDetail.Point,
+			Likes:       data.Body.Likes,
+			Popularity:  data.Body.Popularity,
+			Downloads:   data.Body.Downloads,
+			Description: getPackageDescriptionInfo(data.Body.Name),
+		}
+		getGithubInfo(githubToken, &packageInfo)
+		packageInfoList = append(packageInfoList, packageInfo)
+		fmt.Println("📦✅ " + packageName + ", Code: 1")
 	}
 	return packageInfoList
 }
 
 // 获取 Package 描述 信息
-// [packageName] 单个 package 名称
+// - [packageName] 单个 package 名称
 func getPackageDescriptionInfo(packageName string) string {
 	printErrTitle := "📦⚠️ PackageDescriptionInfo: "
-	res, err := http.Get("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?condition=name:" + url.PathEscape(packageName) + "&pageNum=1&pageSize=10&sortedType=relevancy&isHomePage=false")
+	res, err := http.Get(fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?condition=name:%s&pageNum=1&pageSize=10&sortedType=relevancy&isHomePage=false", url.PathEscape(packageName)))
 	if err != nil {
 		fmt.Println(printErrTitle, err)
 	}
-	defer res.Body.Close()
 	jsonData, err := io.ReadAll(res.Body)
+	res.Body.Close()
 	if err != nil {
 		fmt.Println(printErrTitle, err)
 	}
 	var data PackageDescriptionInfo
-	if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
+	if err := json.Unmarshal(jsonData, &data); err != nil {
 		fmt.Println(printErrTitle, err)
 	}
 
@@ -266,8 +277,8 @@ func getPackageDescriptionInfo(packageName string) string {
 }
 
 // 获取 Github 信息
-// [githubToken] Github Token
-// [packageInfo] 当前 package 信息
+// - [githubToken] Github Token
+// - [packageInfo] 当前 package 信息
 func getGithubInfo(githubToken string, packageInfo *PackageInfo) {
 	if packageInfo.Code == 0 {
 		return
@@ -294,13 +305,13 @@ func getGithubInfo(githubToken string, packageInfo *PackageInfo) {
 }
 
 // 获取 Github 基础信息
-// [githubToken] Github Token
-// [user] 用户
-// [repo] 仓库
+// - [githubToken] Github Token
+// - [user] 用户
+// - [repo] 仓库
 func getGithubBaseInfo(githubToken string, user string, repo string) GithubBaseInfo {
 	printErrTitle := "📦⚠️ GithubBaseInfo: "
 	client := &http.Client{}
-	resp, err := http.NewRequest("GET", "https://api.github.com/repos/"+user+"/"+repo, strings.NewReader(""))
+	resp, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/repos/%s/%s", user, repo), strings.NewReader(""))
 	if err != nil {
 		fmt.Println(printErrTitle, err)
 	}
@@ -311,13 +322,13 @@ func getGithubBaseInfo(githubToken string, user string, repo string) GithubBaseI
 	if err != nil {
 		fmt.Println(printErrTitle, err)
 	}
-	defer res.Body.Close()
 	jsonData, err := io.ReadAll(res.Body)
+	res.Body.Close()
 	if err != nil {
 		fmt.Println(printErrTitle, err)
 	}
 	var data GithubBaseInfo
-	if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
+	if err := json.Unmarshal(jsonData, &data); err != nil {
 		fmt.Println(printErrTitle, err)
 	}
 
@@ -325,15 +336,14 @@ func getGithubBaseInfo(githubToken string, user string, repo string) GithubBaseI
 }
 
 // 获取 Github 贡献者信息
-// [githubToken] Github Token
-// [user] 用户
-// [repo] 仓库
-//
+// - [githubToken] Github Token
+// - [user] 用户
+// - [repo] 仓库
 // @return (贡献者列表, 贡献者总数（最多100）)
 func getGithubContributorsInfo(githubToken string, user string, repo string) ([]GithubContributorsInfo, int) {
 	printErrTitle := "📦⚠️ GithubContributorsInfo: "
 	client := &http.Client{}
-	resp, err := http.NewRequest("GET", "https://api.github.com/repos/"+user+"/"+repo+"/contributors?page=1&per_page=100", strings.NewReader(""))
+	resp, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/repos/%s/%s/contributors?page=1&per_page=100", user, repo), strings.NewReader(""))
 	if err != nil {
 		fmt.Println(printErrTitle, err)
 	}
@@ -344,13 +354,13 @@ func getGithubContributorsInfo(githubToken string, user string, repo string) ([]
 	if err != nil {
 		fmt.Println(printErrTitle, err)
 	}
-	defer res.Body.Close()
 	jsonData, err := io.ReadAll(res.Body)
+	res.Body.Close()
 	if err != nil {
 		fmt.Println(printErrTitle, err)
 	}
 	var data []GithubContributorsInfo
-	if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
+	if err := json.Unmarshal(jsonData, &data); err != nil {
 		fmt.Println(printErrTitle, err)
 	}
 
@@ -370,7 +380,8 @@ func getGithubContributorsInfo(githubToken string, user string, repo string) ([]
 }
 
 // 格式化 Github 信息
-// Return (githubUser, githubRepo)
+// - [string] Github 链接
+// @return (githubUser, githubRepo)
 func formatGithubInfo(value string) (string, string) {
 	var githubUser, githubRepo string
 	result := regexp.MustCompile(`(?:github.com/).*`).FindAllString(value, -1)
@@ -385,102 +396,45 @@ func formatGithubInfo(value string) (string, string) {
 }
 
 // 排序
-// [packageInfoList] 	信息列表
-// [sortField] 				排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
-// [sortMode] 				排序方式 可选：asc(default) | desc
+// - [packageInfoList]  信息列表
+// - [sortField]        排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
+// - [sortMode]         排序方式 可选：asc(default) | desc
 func sortPackageInfo(packageInfoList []PackageInfo, sortField string, sortMode string) {
-	switch sortField {
-	case "name":
-		// 按照 名称 排序
-		sort.SliceStable(packageInfoList, func(i, j int) bool {
-			iData := packageInfoList[i].Name
-			jData := packageInfoList[j].Name
-			switch sortMode {
-			case "asc":
-				return iData < jData
-			case "desc":
-				return iData > jData
-			default:
-				return iData < jData
-			}
-		})
-	case "publishTime":
-		// 按 最新发布时间 排序
-		sort.SliceStable(packageInfoList, func(i, j int) bool {
-			iData := packageInfoList[i].PublishTime
-			jData := packageInfoList[j].PublishTime
-			switch sortMode {
-			case "asc":
-				return iData > jData
-			case "desc":
-				return iData < jData
-			default:
-				return iData > jData
-			}
-		})
-	case "ohpmLikes":
-		// 按 ohpm likes 排序
-		sort.SliceStable(packageInfoList, func(i, j int) bool {
-			iData := packageInfoList[i].Likes
-			jData := packageInfoList[j].Likes
-			switch sortMode {
-			case "asc":
-				return iData < jData
-			case "desc":
-				return iData > jData
-			default:
-				return iData < jData
-			}
-		})
-	case "ohpmDownloads":
-		// 按 ohpm downloads 排序
-		sort.SliceStable(packageInfoList, func(i, j int) bool {
-			iData := packageInfoList[i].Downloads
-			jData := packageInfoList[j].Downloads
-			switch sortMode {
-			case "asc":
-				return iData < jData
-			case "desc":
-				return iData > jData
-			default:
-				return iData < jData
-			}
-		})
-	case "githubStars":
-		// 按 github stars 排序
-		sort.SliceStable(packageInfoList, func(i, j int) bool {
-			iData := packageInfoList[i].GithubBaseInfo.StargazersCount
-			jData := packageInfoList[j].GithubBaseInfo.StargazersCount
-			switch sortMode {
-			case "asc":
-				return iData < jData
-			case "desc":
-				return iData > jData
-			default:
-				return iData < jData
-			}
-		})
-	default:
-		// 按照 名称 排序
-		sort.SliceStable(packageInfoList, func(i, j int) bool {
-			iData := packageInfoList[i].Name
-			jData := packageInfoList[j].Name
-			switch sortMode {
-			case "asc":
-				return iData < jData
-			case "desc":
-				return iData > jData
-			default:
-				return iData < jData
-			}
-		})
-	}
+	isDesc := sortMode == "desc"
+	sort.SliceStable(packageInfoList, func(i, j int) bool {
+		p1 := packageInfoList[i]
+		p2 := packageInfoList[j]
+		var result bool
+		switch sortField {
+		case "name":
+			// 按照 名称 排序
+			result = p1.Name < p2.Name
+		case "publishTime":
+			// 按 最新发布时间 排序
+			result = p1.PublishTime > p2.PublishTime
+		case "ohpmLikes":
+			// 按 ohpm likes 排序
+			result = p1.Likes < p2.Likes
+		case "ohpmDownloads":
+			// 按 ohpm downloads 排序
+			result = p1.Downloads < p2.Downloads
+		case "githubStars":
+			// 按 github stars 排序
+			result = p1.GithubBaseInfo.StargazersCount < p2.GithubBaseInfo.StargazersCount
+		default:
+			result = p1.Name < p2.Name
+		}
+		if isDesc {
+			return !result
+		}
+		return result
+	})
 }
 
 // 组装表格内容
-// [packageInfoList] 	信息列表
-// [sortField] 				排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
-// [sortMode] 				排序方式 可选：asc(default) | desc
+// - [packageInfoList]  信息列表
+// - [sortField]        排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
+// - [sortMode]         排序方式 可选：asc(default) | desc
 func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) string {
 	markdownTableList := []MarkdownTable{}
 	for _, value := range packageInfoList {
@@ -629,10 +583,10 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 }
 
 // 更新 Markdown 表格
-// [filename]	更新的文件
-// [markdown]	更新内容
+// - [filename] 更新的文件
+// - [markdown] 更新内容
 //
-// <!-- md:OHPMDashboard begin --><!-- md:OHPMDashboard end -->
+// 识别：<!-- md:OHPMDashboard begin --><!-- md:OHPMDashboard end -->
 func updateMarkdownTable(filename string, markdown string) error {
 	md, err := os.ReadFile(filename)
 	if err != nil {
@@ -661,10 +615,10 @@ func updateMarkdownTable(filename string, markdown string) error {
 }
 
 // 更新 Markdown Package 总数计数
-// [filename]	更新的文件
-// [total]		总数
+// - [filename] 更新的文件
+// - [total]    总数
 //
-// <!-- md:OHPMDashboard-total begin --><!-- md:OHPMDashboard-total end -->
+// 识别：<!-- md:OHPMDashboard-total begin --><!-- md:OHPMDashboard-total end -->
 func updateMarkdownPackageTotal(filename string, total int) error {
 	md, err := os.ReadFile(filename)
 	if err != nil {
@@ -704,7 +658,6 @@ func formatString(v string) string {
 
 func formatNumber(num int) string {
 	var formatted, suffix string
-
 	if num >= 1000000 {
 		formatted = fmt.Sprintf("%.2f", float64(num)/1000000)
 		suffix = "M"
@@ -715,7 +668,7 @@ func formatNumber(num int) string {
 		return strconv.Itoa(num)
 	}
 
-	// 去掉多余的0和小数点
+	// 去掉多余的 0 和小数点
 	formatted = strings.TrimRight(strings.TrimRight(formatted, "0"), ".")
 	return formatted + suffix
 }

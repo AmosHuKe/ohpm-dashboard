@@ -27,6 +27,6 @@ jobs:
           github_repo: "https://github.com/AmosHuKe/ohpm-dashboard"
           filename: "Example.md"
           publisher_list: "6542179b6dad4e55f6635764"
-          package_list: ""
+          package_list: "abccba"
           sort_field: "publishTime"
           sort_mode: "asc"
