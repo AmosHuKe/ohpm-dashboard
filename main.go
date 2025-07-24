@@ -1,3 +1,21 @@
+// ohpm.openharmony.cn Package 仪表盘
+//
+// 识别并更新指定 [filename] Markdown 文件中的特定占位内容，
+//
+// 特定占位:
+//   - `<!-- md:OHPMDashboard begin --><!-- md:OHPMDashboard end -->`              仪表盘表格（Markdown 格式）
+//   - `<!-- md:OHPMDashboard-total begin --><!-- md:OHPMDashboard-total end -->`  Package 数量
+//
+// 使用:
+//   - `go run main.go -githubToken xxx -filename xxx -publisherList xxx -packageList xxx -sortField xxx -sortMode xxx`
+//
+// 参数:
+//   - [githubToken]    拥有 repo 权限的 Github 令牌
+//   - [filename]       需要更新的 Markdown 文件，例如："README.md" "test/test.md"
+//   - [publisherList]  Publisher ID 列表 (`,`逗号分割) https://ohpm.openharmony.cn/#/cn/publisher/6542179b6dad4e55f6635764 例如："6542179b6dad4e55f6635764,xxx,xxx"
+//   - [packageList]    Package 名称列表 (`,`逗号分割)，例如："@candies/extended_text,@bb/xx,@cc/xx"
+//   - [sortField]      排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
+//   - [sortMode]       排序方式 可选：asc(default) | desc
 package main
 
 import (
@@ -137,6 +155,13 @@ func main() {
 }
 
 // 合并 publisher 的 package 和自定义 package 列表，并去重
+//
+// 参数:
+//   - [publisherList] publisher 名称列表（逗号,分割）
+//   - [packageList] package 名称列表（逗号,分割）
+//
+// 返回值:
+//   - package 合并后的名称列表（逗号,分割）
 func mergePackageList(publisherList, packageList string) string {
 	publisherPackageList := getPublisherPackages(publisherList)
 	all := strings.Split(publisherPackageList+","+packageList, ",")
@@ -144,8 +169,12 @@ func mergePackageList(publisherList, packageList string) string {
 }
 
 // 通过 Publisher 获取所有 Package 名称
-// - [publisherId] publisher ID 列表(逗号,分割)
-// @return 与 packageList 相同的 package 名称列表(逗号,分割)
+//
+// 参数:
+//   - [publisherId] publisher ID 列表（逗号,分割）
+//
+// 返回值:
+//   - 与 packageList 相同的 package 名称列表（逗号,分割）
 func getPublisherPackages(publisherId string) string {
 	printErrTitle := "🌏⚠️ PublisherPackages: "
 	if publisherId == "" {
@@ -196,8 +225,13 @@ func getPublisherPackages(publisherId string) string {
 }
 
 // 获取所有 Package 信息
-// - [githubToken] Github Token
-// - [packagesName] package 名称列表(逗号,分割)
+//
+// 参数:
+//   - [githubToken] Github Token
+//   - [packagesName] package 名称列表（逗号,分割）
+//
+// 返回值:
+//   - [PackageInfo] 列表
 func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 	printErrTitle := "📦⚠️ PackageInfo: "
 	packageList := removeDuplicates(strings.Split(packagesName, ","))
@@ -252,8 +286,13 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 	return packageInfoList
 }
 
-// 获取 Package 描述 信息
-// - [packageName] 单个 package 名称
+// 获取 Package 描述信息
+//
+// 参数:
+//   - [packageName] 单个 package 名称
+//
+// 返回值:
+//   - Package 描述信息
 func getPackageDescriptionInfo(packageName string) string {
 	printErrTitle := "📦⚠️ PackageDescriptionInfo: "
 	res, err := http.Get(fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?condition=name:%s&pageNum=1&pageSize=10&sortedType=relevancy&isHomePage=false", url.PathEscape(packageName)))
@@ -276,9 +315,12 @@ func getPackageDescriptionInfo(packageName string) string {
 	return ""
 }
 
-// 获取 Github 信息
-// - [githubToken] Github Token
-// - [packageInfo] 当前 package 信息
+// 获取 Github 信息，
+// 处理 [PackageInfo] 中 GithubUser, GithubRepo, GithubBaseInfo, GithubContributorsInfo 的值
+//
+// 参数:
+//   - [githubToken] Github Token
+//   - [packageInfo] 当前 package 信息
 func getGithubInfo(githubToken string, packageInfo *PackageInfo) {
 	if packageInfo.Code == 0 {
 		return
@@ -305,9 +347,14 @@ func getGithubInfo(githubToken string, packageInfo *PackageInfo) {
 }
 
 // 获取 Github 基础信息
-// - [githubToken] Github Token
-// - [user] 用户
-// - [repo] 仓库
+//
+// 参数:
+//   - [githubToken] Github Token
+//   - [user] 用户
+//   - [repo] 仓库
+//
+// 返回值:
+//   - [GithubBaseInfo] 信息
 func getGithubBaseInfo(githubToken string, user string, repo string) GithubBaseInfo {
 	printErrTitle := "📦⚠️ GithubBaseInfo: "
 	client := &http.Client{}
@@ -336,10 +383,15 @@ func getGithubBaseInfo(githubToken string, user string, repo string) GithubBaseI
 }
 
 // 获取 Github 贡献者信息
-// - [githubToken] Github Token
-// - [user] 用户
-// - [repo] 仓库
-// @return (贡献者列表, 贡献者总数（最多100）)
+//
+// 参数:
+//   - [githubToken] Github Token
+//   - [user] 用户
+//   - [repo] 仓库
+//
+// 返回值:
+//   - [GithubContributorsInfo] 贡献者列表
+//   - 贡献者总数（最多100）
 func getGithubContributorsInfo(githubToken string, user string, repo string) ([]GithubContributorsInfo, int) {
 	printErrTitle := "📦⚠️ GithubContributorsInfo: "
 	client := &http.Client{}
@@ -380,8 +432,13 @@ func getGithubContributorsInfo(githubToken string, user string, repo string) ([]
 }
 
 // 格式化 Github 信息
-// - [string] Github 链接
-// @return (githubUser, githubRepo)
+//
+// 参数:
+//   - [value] Github 链接
+//
+// 返回值:
+//   - githubUser 信息
+//   - githubRepo 信息
 func formatGithubInfo(value string) (string, string) {
 	var githubUser, githubRepo string
 	result := regexp.MustCompile(`(?:github.com/).*`).FindAllString(value, -1)
@@ -395,10 +452,12 @@ func formatGithubInfo(value string) (string, string) {
 	return githubUser, githubRepo
 }
 
-// 排序
-// - [packageInfoList]  信息列表
-// - [sortField]        排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
-// - [sortMode]         排序方式 可选：asc(default) | desc
+// 对 [packageInfoList] 排序
+//
+// 参数:
+//   - [packageInfoList]  信息列表
+//   - [sortField]        排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
+//   - [sortMode]         排序方式 可选：asc(default) | desc
 func sortPackageInfo(packageInfoList []PackageInfo, sortField string, sortMode string) {
 	isDesc := sortMode == "desc"
 	sort.SliceStable(packageInfoList, func(i, j int) bool {
@@ -432,9 +491,13 @@ func sortPackageInfo(packageInfoList []PackageInfo, sortField string, sortMode s
 }
 
 // 组装表格内容
-// - [packageInfoList]  信息列表
-// - [sortField]        排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
-// - [sortMode]         排序方式 可选：asc(default) | desc
+//
+// 参数:
+//   - [packageInfoList]  信息列表
+//   - [sortField]        排序字段 可选：name(default) | publishTime | ohpmLikes | ohpmDownloads | githubStars
+//
+// 返回值:
+//   - markdown 表格内容
 func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) string {
 	markdownTableList := []MarkdownTable{}
 	for _, value := range packageInfoList {
@@ -583,10 +646,12 @@ func assembleMarkdownTable(packageInfoList []PackageInfo, sortField string) stri
 }
 
 // 更新 Markdown 表格
-// - [filename] 更新的文件
-// - [markdown] 更新内容
 //
 // 识别：<!-- md:OHPMDashboard begin --><!-- md:OHPMDashboard end -->
+//
+// 参数:
+//   - [filename] 更新的文件
+//   - [markdown] 更新内容
 func updateMarkdownTable(filename string, markdown string) error {
 	md, err := os.ReadFile(filename)
 	if err != nil {
@@ -615,10 +680,12 @@ func updateMarkdownTable(filename string, markdown string) error {
 }
 
 // 更新 Markdown Package 总数计数
-// - [filename] 更新的文件
-// - [total]    总数
 //
 // 识别：<!-- md:OHPMDashboard-total begin --><!-- md:OHPMDashboard-total end -->
+//
+// 参数:
+//   - [filename] 更新的文件
+//   - [total]    总数
 func updateMarkdownPackageTotal(filename string, total int) error {
 	md, err := os.ReadFile(filename)
 	if err != nil {
@@ -645,10 +712,20 @@ func updateMarkdownPackageTotal(filename string, total int) error {
 
 // 由于直接获取 GithubContributorsInfo.AvatarUrl 有可能会是私有头像地址，
 // 暂时固定头像地址。
+//
+// 参数:
+//   - [githubId] Github ID
 func getGithubAvatarUrl(githubId int) string {
 	return "https://avatars.githubusercontent.com/u/" + strconv.Itoa(githubId) + "?v=4"
 }
 
+// 格式化字符串（防止 markdown 格式错乱）
+//
+// 参数:
+//   - [v] 需要格式化的字符
+//
+// 返回值:
+//   - 格式化后的字符
 func formatString(v string) string {
 	value := v
 	value = strings.ReplaceAll(value, "\n", " ")
@@ -656,6 +733,13 @@ func formatString(v string) string {
 	return value
 }
 
+// 格式化下载数量（便于展示）
+//
+// 参数:
+//   - [num] 需要格式化的数量
+//
+// 返回值:
+//   - 格式化后的数量字符
 func formatNumber(num int) string {
 	var formatted, suffix string
 	if num >= 1000000 {
