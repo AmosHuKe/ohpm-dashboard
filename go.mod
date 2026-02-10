@@ -1,3 +1,3 @@
 module github.com/AmosHuKe/ohpm-dashboard
 
-go 1.25.1
+go 1.25.7

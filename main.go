@@ -140,17 +140,23 @@ func main() {
 	flag.Parse()
 
 	packageAllList := mergePackageList(publisherList, packageList)
-	packageInfoList := getPackageInfo(githubToken, packageAllList)
+	packageInfoList, err := getPackageInfo(githubToken, packageAllList)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	sortPackageInfo(packageInfoList, sortField, sortMode)
 	markdownTable := assembleMarkdownTable(packageInfoList, sortField)
 
 	// 更新表格
 	if err := updateMarkdownTable(filename, markdownTable); err != nil {
 		fmt.Println(err)
+		os.Exit(1)
 	}
 	// 更新总数
 	if err := updateMarkdownPackageTotal(filename, len(packageInfoList)); err != nil {
 		fmt.Println(err)
+		os.Exit(1)
 	}
 }
 
@@ -232,7 +238,7 @@ func getPublisherPackages(publisherId string) string {
 //
 // 返回值:
 //   - [PackageInfo] 列表
-func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
+func getPackageInfo(githubToken string, packagesName string) ([]PackageInfo, error) {
 	printErrTitle := "📦⚠️ PackageInfo: "
 	packageList := removeDuplicates(strings.Split(packagesName, ","))
 	fmt.Println("📦", packageList)
@@ -245,12 +251,12 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 		packageName := strings.TrimSpace(value)
 		res, err := http.Get(fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/detail/%s", url.PathEscape(packageName)))
 		if err != nil {
-			fmt.Println(printErrTitle, err)
+			return nil, fmt.Errorf("%s%w", printErrTitle, err)
 		}
 		jsonData, err := io.ReadAll(res.Body)
 		res.Body.Close()
 		if err != nil {
-			fmt.Println(printErrTitle, err)
+			return nil, fmt.Errorf("%s%w", printErrTitle, err)
 		}
 		var data PackageBaseInfo
 		if err := json.Unmarshal(jsonData, &data); err != nil {
@@ -277,13 +283,21 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 			Likes:       data.Body.Likes,
 			Popularity:  data.Body.Popularity,
 			Downloads:   data.Body.Downloads,
-			Description: getPackageDescriptionInfo(data.Body.Name),
 		}
-		getGithubInfo(githubToken, &packageInfo)
+
+		packageDescription, err := getPackageDescriptionInfo(data.Body.Name)
+		if err != nil {
+			return nil, err
+		}
+		packageInfo.Description = packageDescription
+
+		if err := getGithubInfo(githubToken, &packageInfo); err != nil {
+			return nil, err
+		}
 		packageInfoList = append(packageInfoList, packageInfo)
 		fmt.Println("📦✅ " + packageName + ", Code: 1")
 	}
-	return packageInfoList
+	return packageInfoList, nil
 }
 
 // 获取 Package 描述信息
@@ -293,26 +307,26 @@ func getPackageInfo(githubToken string, packagesName string) []PackageInfo {
 //
 // 返回值:
 //   - Package 描述信息
-func getPackageDescriptionInfo(packageName string) string {
+func getPackageDescriptionInfo(packageName string) (string, error) {
 	printErrTitle := "📦⚠️ PackageDescriptionInfo: "
 	res, err := http.Get(fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?condition=name:%s&pageNum=1&pageSize=10&sortedType=relevancy&isHomePage=false", url.PathEscape(packageName)))
 	if err != nil {
-		fmt.Println(printErrTitle, err)
+		return "", fmt.Errorf("%s%w", printErrTitle, err)
 	}
 	jsonData, err := io.ReadAll(res.Body)
 	res.Body.Close()
 	if err != nil {
-		fmt.Println(printErrTitle, err)
+		return "", fmt.Errorf("%s%w", printErrTitle, err)
 	}
 	var data PackageDescriptionInfo
 	if err := json.Unmarshal(jsonData, &data); err != nil {
-		fmt.Println(printErrTitle, err)
+		return "", fmt.Errorf("%s%w", printErrTitle, err)
 	}
 
 	if len(data.Body.Rows) > 0 {
-		return data.Body.Rows[0].Description
+		return data.Body.Rows[0].Description, nil
 	}
-	return ""
+	return "", nil
 }
 
 // 获取 Github 信息，
@@ -321,9 +335,9 @@ func getPackageDescriptionInfo(packageName string) string {
 // 参数:
 //   - [githubToken] Github Token
 //   - [packageInfo] 当前 package 信息
-func getGithubInfo(githubToken string, packageInfo *PackageInfo) {
+func getGithubInfo(githubToken string, packageInfo *PackageInfo) error {
 	if packageInfo.Code == 0 {
-		return
+		return nil
 	}
 	finish := false
 	var user, repo string
@@ -341,9 +355,20 @@ func getGithubInfo(githubToken string, packageInfo *PackageInfo) {
 	}
 	// 获取 Github 相关信息
 	if packageInfo.GithubUser != "" && packageInfo.GithubRepo != "" {
-		packageInfo.GithubBaseInfo = getGithubBaseInfo(githubToken, packageInfo.GithubUser, packageInfo.GithubRepo)
-		packageInfo.GithubContributorsInfo, packageInfo.GithubBaseInfo.ContributorsTotal = getGithubContributorsInfo(githubToken, packageInfo.GithubUser, packageInfo.GithubRepo)
+		githubBaseInfo, err := getGithubBaseInfo(githubToken, packageInfo.GithubUser, packageInfo.GithubRepo)
+		if err != nil {
+			return err
+		}
+		packageInfo.GithubBaseInfo = githubBaseInfo
+
+		githubContributorsInfo, contributorsTotal, err := getGithubContributorsInfo(githubToken, packageInfo.GithubUser, packageInfo.GithubRepo)
+		if err != nil {
+			return err
+		}
+		packageInfo.GithubContributorsInfo = githubContributorsInfo
+		packageInfo.GithubBaseInfo.ContributorsTotal = contributorsTotal
 	}
+	return nil
 }
 
 // 获取 Github 基础信息
@@ -355,31 +380,31 @@ func getGithubInfo(githubToken string, packageInfo *PackageInfo) {
 //
 // 返回值:
 //   - [GithubBaseInfo] 信息
-func getGithubBaseInfo(githubToken string, user string, repo string) GithubBaseInfo {
+func getGithubBaseInfo(githubToken string, user string, repo string) (GithubBaseInfo, error) {
 	printErrTitle := "📦⚠️ GithubBaseInfo: "
 	client := &http.Client{}
 	resp, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/repos/%s/%s", user, repo), strings.NewReader(""))
 	if err != nil {
-		fmt.Println(printErrTitle, err)
+		return GithubBaseInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
 	}
 	resp.Header.Set("Authorization", "bearer "+githubToken)
 	resp.Header.Set("Accept", "application/vnd.github+json")
 	resp.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	res, err := client.Do(resp)
 	if err != nil {
-		fmt.Println(printErrTitle, err)
+		return GithubBaseInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
 	}
 	jsonData, err := io.ReadAll(res.Body)
 	res.Body.Close()
 	if err != nil {
-		fmt.Println(printErrTitle, err)
+		return GithubBaseInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
 	}
 	var data GithubBaseInfo
 	if err := json.Unmarshal(jsonData, &data); err != nil {
-		fmt.Println(printErrTitle, err)
+		return GithubBaseInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
 	}
 
-	return data
+	return data, nil
 }
 
 // 获取 Github 贡献者信息
@@ -392,28 +417,28 @@ func getGithubBaseInfo(githubToken string, user string, repo string) GithubBaseI
 // 返回值:
 //   - [GithubContributorsInfo] 贡献者列表
 //   - 贡献者总数（最多100）
-func getGithubContributorsInfo(githubToken string, user string, repo string) ([]GithubContributorsInfo, int) {
+func getGithubContributorsInfo(githubToken string, user string, repo string) ([]GithubContributorsInfo, int, error) {
 	printErrTitle := "📦⚠️ GithubContributorsInfo: "
 	client := &http.Client{}
 	resp, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/repos/%s/%s/contributors?page=1&per_page=100", user, repo), strings.NewReader(""))
 	if err != nil {
-		fmt.Println(printErrTitle, err)
+		return nil, 0, fmt.Errorf("%s%w", printErrTitle, err)
 	}
 	resp.Header.Set("Authorization", "bearer "+githubToken)
 	resp.Header.Set("Accept", "application/vnd.github+json")
 	resp.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	res, err := client.Do(resp)
 	if err != nil {
-		fmt.Println(printErrTitle, err)
+		return nil, 0, fmt.Errorf("%s%w", printErrTitle, err)
 	}
 	jsonData, err := io.ReadAll(res.Body)
 	res.Body.Close()
 	if err != nil {
-		fmt.Println(printErrTitle, err)
+		return nil, 0, fmt.Errorf("%s%w", printErrTitle, err)
 	}
 	var data []GithubContributorsInfo
 	if err := json.Unmarshal(jsonData, &data); err != nil {
-		fmt.Println(printErrTitle, err)
+		return nil, 0, fmt.Errorf("%s%w", printErrTitle, err)
 	}
 
 	githubContributorsInfo := []GithubContributorsInfo{}
@@ -428,7 +453,7 @@ func getGithubContributorsInfo(githubToken string, user string, repo string) ([]
 			i++
 		}
 	}
-	return githubContributorsInfo, len(data)
+	return githubContributorsInfo, len(data), nil
 }
 
 // 格式化 Github 信息
