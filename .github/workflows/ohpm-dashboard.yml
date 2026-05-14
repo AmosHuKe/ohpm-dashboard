@@ -9,10 +9,15 @@ on:
       - 'action.yaml'
       - 'main.go'
 
+# Disable permissions for all of the available permissions
+permissions: {}
+
 jobs:
   ohpm-dashboard-job:
     runs-on: ubuntu-latest
     name: ohpm-dashboard
+    permissions:
+      contents: write
     steps:
       - name: run ohpm-dashboard
         uses: AmosHuKe/ohpm-dashboard@main

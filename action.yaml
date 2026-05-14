@@ -45,7 +45,7 @@ runs:
   using: 'composite'
   steps:
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v6
+      uses: actions/checkout@900f2210b1d28bbbd0bd22d17926b9e224e8f231
 
     - name: Set GitHub Path
       run: echo "$GITHUB_ACTION_PATH" >> $GITHUB_PATH
@@ -61,7 +61,7 @@ runs:
       shell: bash
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@78961f6f84d799cd858575bb931c3e51d3b13290
       with:
         go-version-file: '${{ github.action_path }}/go.mod'
         cache: false
