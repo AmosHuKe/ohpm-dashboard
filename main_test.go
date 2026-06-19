@@ -48,6 +48,99 @@ func TestRemoveDuplicates(t *testing.T) {
 	}
 }
 
+func TestDecodeBody(t *testing.T) {
+	t.Run("detail object decodes", func(t *testing.T) {
+		raw := []byte(`{"code":200,"body":{"name":"@candies/extended_text","version":"1.0.0","downloads":42}}`)
+		got, ok, err := decodeBody[PackageBaseInfo](raw)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !ok {
+			t.Fatal("ok = false, want true")
+		}
+		if got.Name != "@candies/extended_text" || got.Version != "1.0.0" || got.Downloads != 42 {
+			t.Errorf("got %+v", got)
+		}
+	})
+
+	t.Run("non-existent package (body is success string) degrades", func(t *testing.T) {
+		// OHPM 对不存在的 package 仍返回 200，但 body 为字符串 "success"。
+		raw := []byte(`{"code":200,"body":"success"}`)
+		got, ok, err := decodeBody[PackageBaseInfo](raw)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ok {
+			t.Error("ok = true, want false for string body")
+		}
+		if got.Name != "" {
+			t.Errorf("got.Name = %q, want empty", got.Name)
+		}
+	})
+
+	t.Run("null body decodes to zero value (ok=true)", func(t *testing.T) {
+		raw := []byte(`{"code":200,"body":null}`)
+		got, ok, err := decodeBody[PackageBaseInfo](raw)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// null 可解析为零值对象；调用方再按 Name 为空降级。
+		if !ok {
+			t.Error("ok = false, want true for null body")
+		}
+		if got.Name != "" {
+			t.Errorf("got.Name = %q, want empty", got.Name)
+		}
+	})
+
+	t.Run("empty object body has empty name", func(t *testing.T) {
+		raw := []byte(`{"code":200,"body":{}}`)
+		got, ok, err := decodeBody[PackageBaseInfo](raw)
+		if err != nil || !ok {
+			t.Fatalf("ok=%v err=%v", ok, err)
+		}
+		if got.Name != "" {
+			t.Errorf("got.Name = %q, want empty", got.Name)
+		}
+	})
+
+	t.Run("invalid json returns error", func(t *testing.T) {
+		raw := []byte(`not json`)
+		_, ok, err := decodeBody[PackageBaseInfo](raw)
+		if err == nil {
+			t.Fatal("expected error for invalid json")
+		}
+		if ok {
+			t.Error("ok = true, want false on error")
+		}
+	})
+
+	t.Run("publisher rows decode", func(t *testing.T) {
+		raw := []byte(`{"code":200,"body":{"rows":[{"name":"a"},{"name":"b"}]}}`)
+		got, ok, err := decodeBody[PublisherInfo](raw)
+		if err != nil || !ok {
+			t.Fatalf("ok=%v err=%v", ok, err)
+		}
+		if len(got.Rows) != 2 || got.Rows[0].Name != "a" || got.Rows[1].Name != "b" {
+			t.Errorf("got %+v", got)
+		}
+	})
+
+	t.Run("publisher end-of-pages (success string) degrades", func(t *testing.T) {
+		raw := []byte(`{"code":200,"body":"success"}`)
+		got, ok, err := decodeBody[PublisherInfo](raw)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ok {
+			t.Error("ok = true, want false for string body")
+		}
+		if len(got.Rows) != 0 {
+			t.Errorf("got %+v, want no rows", got)
+		}
+	})
+}
+
 func TestFormatGithubInfo(t *testing.T) {
 	tests := []struct {
 		name     string

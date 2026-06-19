@@ -106,41 +106,35 @@ type GithubContributorsInfo struct {
 	Type      string `json:"type"`
 }
 
-// ohpm.openharmony.cn package 基础信息
+// ohpm.openharmony.cn package 基础信息（接口响应 body 字段的内容）
 type PackageBaseInfo struct {
-	Body struct {
-		Name        string `json:"name"`
-		Version     string `json:"version"`
-		License     string `json:"license"`
-		Homepage    string `json:"homepage"`
-		Repository  string `json:"repository"`
-		PublishTime int    `json:"publishTime"`
-		Points      int    `json:"points"`
-		Likes       int    `json:"likes"`
-		Popularity  int    `json:"popularity"`
-		Downloads   int    `json:"downloads"`
-		PointDetail struct {
-			Point int `json:"point"`
-		} `json:"pointDetail"`
-	} `json:"body"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	License     string `json:"license"`
+	Homepage    string `json:"homepage"`
+	Repository  string `json:"repository"`
+	PublishTime int    `json:"publishTime"`
+	Points      int    `json:"points"`
+	Likes       int    `json:"likes"`
+	Popularity  int    `json:"popularity"`
+	Downloads   int    `json:"downloads"`
+	PointDetail struct {
+		Point int `json:"point"`
+	} `json:"pointDetail"`
 }
 
-// ohpm.openharmony.cn package 描述信息
+// ohpm.openharmony.cn package 描述信息（接口响应 body 字段的内容）
 type PackageDescriptionInfo struct {
-	Body struct {
-		Rows []struct {
-			Description string `json:"description"`
-		} `json:"rows"`
-	} `json:"body"`
+	Rows []struct {
+		Description string `json:"description"`
+	} `json:"rows"`
 }
 
-// ohpm.openharmony.cn publisher 下所有 package 信息
+// ohpm.openharmony.cn publisher 下所有 package 信息（接口响应 body 字段的内容）
 type PublisherInfo struct {
-	Body struct {
-		Rows []struct {
-			Name string `json:"name"`
-		} `json:"rows"`
-	} `json:"body"`
+	Rows []struct {
+		Name string `json:"name"`
+	} `json:"rows"`
 }
 
 func main() {
@@ -232,14 +226,15 @@ func getPublisherPackages(ctx context.Context, client *http.Client, publisherId 
 			if status != http.StatusOK {
 				return nil, fmt.Errorf("%s%s: unexpected status %d", printErrTitle, publisher, status)
 			}
-			var data PublisherInfo
-			if err := json.Unmarshal(body, &data); err != nil {
+			data, ok, err := decodeBody[PublisherInfo](body)
+			if err != nil {
 				return nil, fmt.Errorf("%s%w", printErrTitle, err)
 			}
-			if len(data.Body.Rows) == 0 {
+			// body 非对象或无结果 -> 结束分页
+			if !ok || len(data.Rows) == 0 {
 				break
 			}
-			for _, row := range data.Body.Rows {
+			for _, row := range data.Rows {
 				if row.Name != "" {
 					packageNameList = append(packageNameList, row.Name)
 				}
@@ -303,30 +298,32 @@ func fetchPackage(ctx context.Context, client *http.Client, githubToken string, 
 	if status != http.StatusOK {
 		return PackageInfo{}, fmt.Errorf("%s%s: unexpected status %d", printErrTitle, name, status)
 	}
-	var data PackageBaseInfo
-	if err := json.Unmarshal(body, &data); err != nil {
+	data, ok, err := decodeBody[PackageBaseInfo](body)
+	if err != nil {
 		return PackageInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
 	}
-	if data.Body.Name == "" {
+	// 不存在的 package 接口仍返回 200，但 body 为 "success" 字符串（非对象）-> 降级，
+	// body 为对象但缺少 name 同样降级。
+	if !ok || data.Name == "" {
 		return PackageInfo{Code: 0, Name: name}, nil
 	}
 
 	packageInfo := PackageInfo{
 		Code:        1,
-		Name:        data.Body.Name,
-		Version:     data.Body.Version,
-		LicenseName: data.Body.License,
-		Homepage:    data.Body.Homepage,
-		Repository:  data.Body.Repository,
-		PublishTime: data.Body.PublishTime,
-		Points:      data.Body.Points,
-		MaxPoints:   data.Body.PointDetail.Point,
-		Likes:       data.Body.Likes,
-		Popularity:  data.Body.Popularity,
-		Downloads:   data.Body.Downloads,
+		Name:        data.Name,
+		Version:     data.Version,
+		LicenseName: data.License,
+		Homepage:    data.Homepage,
+		Repository:  data.Repository,
+		PublishTime: data.PublishTime,
+		Points:      data.Points,
+		MaxPoints:   data.PointDetail.Point,
+		Likes:       data.Likes,
+		Popularity:  data.Popularity,
+		Downloads:   data.Downloads,
 	}
 
-	description, err := getPackageDescriptionInfo(ctx, client, data.Body.Name)
+	description, err := getPackageDescriptionInfo(ctx, client, data.Name)
 	if err != nil {
 		return PackageInfo{}, err
 	}
@@ -360,12 +357,12 @@ func getPackageDescriptionInfo(ctx context.Context, client *http.Client, package
 	if status != http.StatusOK {
 		return "", fmt.Errorf("%s%s: unexpected status %d", printErrTitle, packageName, status)
 	}
-	var data PackageDescriptionInfo
-	if err := json.Unmarshal(body, &data); err != nil {
+	data, ok, err := decodeBody[PackageDescriptionInfo](body)
+	if err != nil {
 		return "", fmt.Errorf("%s%w", printErrTitle, err)
 	}
-	if len(data.Body.Rows) > 0 {
-		return data.Body.Rows[0].Description, nil
+	if ok && len(data.Rows) > 0 {
+		return data.Rows[0].Description, nil
 	}
 	return "", nil
 }
@@ -929,6 +926,32 @@ func httpGetWithRetry(ctx context.Context, client *http.Client, rawURL string, h
 		return body, status, nil
 	}
 	return nil, 0, fmt.Errorf("After %d attempts: %w", maxAttempts, lastErr)
+}
+
+// decodeBody 解析 OHPM 接口响应外层 {"code":..., "body":...} 中的 body 字段为 T。
+//
+// OHPM 对不存在的资源仍返回 200，但此时 body 是字符串（如 "success"）而非对象，
+//
+// 参数:
+//   - [respBody] 完整响应体
+//
+// 返回值:
+//   - 解析后的 body 内容
+//   - body 是否为可解析的预期对象
+//   - 外层 JSON 解析错误（如非 JSON 响应）
+func decodeBody[T any](respBody []byte) (T, bool, error) {
+	var zero T
+	var envelope struct {
+		Body json.RawMessage `json:"body"`
+	}
+	if err := json.Unmarshal(respBody, &envelope); err != nil {
+		return zero, false, err
+	}
+	var out T
+	if err := json.Unmarshal(envelope.Body, &out); err != nil {
+		return zero, false, nil
+	}
+	return out, true, nil
 }
 
 // 由于直接获取 GithubContributorsInfo.AvatarUrl 有可能会是私有头像地址，
