@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -31,7 +32,20 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+const (
+	// maxConcurrency 是 package 级别的并发抓取上限。
+	// 需要按 ohpm.openharmony.cn 和 GitHub 限流取保守值。
+	maxConcurrency = 8
+	// maxAttempts 是单个 HTTP 请求的最大尝试次数（含首次）。
+	maxAttempts = 3
+	// httpTimeout 是单个 HTTP 请求的超时时间，防止请求挂起拖跨整个 Action。
+	httpTimeout = 30 * time.Second
+	// retryBaseDelay 是重试的基础退避时长（指数增长）。
+	retryBaseDelay = 500 * time.Millisecond
 )
 
 // 主 MarkdownTable 用于存储每个 package 在 Markdown 表格中的展示信息
@@ -139,8 +153,15 @@ func main() {
 	flag.StringVar(&sortMode, "sortMode", "asc", "asc | desc")
 	flag.Parse()
 
-	packageAllList := mergePackageList(publisherList, packageList)
-	packageInfoList, err := getPackageInfo(githubToken, packageAllList)
+	ctx := context.Background()
+	client := newHTTPClient()
+
+	packageNames, err := mergePackageList(ctx, client, publisherList, packageList)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	packageInfoList, err := getPackageInfo(ctx, client, githubToken, packageNames)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -160,169 +181,189 @@ func main() {
 	}
 }
 
-// 合并 publisher 的 package 和自定义 package 列表，并去重
+// 合并 publisher 的 package 和自定义 package 列表，并去重（保持顺序）
 //
 // 参数:
-//   - [publisherList] publisher 名称列表（逗号,分割）
-//   - [packageList] package 名称列表（逗号,分割）
+//   - [ctx]           上下文
+//   - [client]        共享 HTTP Client
+//   - [publisherList] publisher ID 列表（逗号,分割）
+//   - [packageList]   package 名称列表（逗号,分割）
 //
 // 返回值:
-//   - package 合并后的名称列表（逗号,分割）
-func mergePackageList(publisherList, packageList string) string {
-	publisherPackageList := getPublisherPackages(publisherList)
-	all := strings.Split(publisherPackageList+","+packageList, ",")
-	return strings.Join(removeDuplicates(all), ",")
+//   - 合并去重后的 package 名称列表
+func mergePackageList(ctx context.Context, client *http.Client, publisherList string, packageList string) ([]string, error) {
+	publisherPackages, err := getPublisherPackages(ctx, client, publisherList)
+	if err != nil {
+		return nil, err
+	}
+	all := append(publisherPackages, strings.Split(packageList, ",")...)
+	return removeDuplicates(all), nil
 }
 
 // 通过 Publisher 获取所有 Package 名称
 //
 // 参数:
+//   - [ctx]         上下文
+//   - [client]      共享 HTTP Client
 //   - [publisherId] publisher ID 列表（逗号,分割）
 //
 // 返回值:
-//   - 与 packageList 相同的 package 名称列表（逗号,分割）
-func getPublisherPackages(publisherId string) string {
+//   - package 名称列表
+func getPublisherPackages(ctx context.Context, client *http.Client, publisherId string) ([]string, error) {
 	printErrTitle := "🌏⚠️ PublisherPackages: "
-	if publisherId == "" {
-		return ""
+	if strings.TrimSpace(publisherId) == "" {
+		return nil, nil
 	}
 	publisherList := removeDuplicates(strings.Split(publisherId, ","))
 	fmt.Println("🌏", publisherList)
 	packageNameList := []string{}
-	for _, value := range publisherList {
-		if value == "" {
-			continue
-		}
-		publisherId := strings.TrimSpace(value)
-
-		// 查找每一页
-		pageIndex := 1
-		for pageIndex != 0 {
-			fmt.Printf("🌏🔗 Publisher: %s, Page: %d \n", publisherId, pageIndex)
-			res, err := http.Get(fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?publisherId=%s&pageNum=%d&pageSize=10&sortedType=latest&isHomePage=false&condition=", publisherId, pageIndex))
+	for _, publisher := range publisherList {
+		// 逐页查询，直至返回空结果
+		for pageIndex := 1; ; pageIndex++ {
+			fmt.Printf("🌏🔗 Publisher: %s, Page: %d \n", publisher, pageIndex)
+			rawURL := fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?publisherId=%s&pageNum=%d&pageSize=10&sortedType=latest&isHomePage=false&condition=", url.QueryEscape(publisher), pageIndex)
+			body, status, err := httpGetWithRetry(ctx, client, rawURL, nil)
 			if err != nil {
-				fmt.Println(printErrTitle, err)
-				break
+				return nil, fmt.Errorf("%s%w", printErrTitle, err)
 			}
-			jsonData, err := io.ReadAll(res.Body)
-			res.Body.Close()
-			if err != nil {
-				fmt.Println(printErrTitle, err)
-				break
+			if status == http.StatusNotFound {
+				break // 无更多结果
 			}
-			data := PublisherInfo{}
-			if err := json.Unmarshal(jsonData, &data); err != nil {
-				fmt.Println(printErrTitle, err)
-				break
+			if status != http.StatusOK {
+				return nil, fmt.Errorf("%s%s: unexpected status %d", printErrTitle, publisher, status)
+			}
+			var data PublisherInfo
+			if err := json.Unmarshal(body, &data); err != nil {
+				return nil, fmt.Errorf("%s%w", printErrTitle, err)
 			}
 			if len(data.Body.Rows) == 0 {
-				pageIndex = 0
 				break
 			}
-			for _, packageRow := range data.Body.Rows {
-				if packageRow.Name != "" {
-					packageNameList = append(packageNameList, packageRow.Name)
+			for _, row := range data.Body.Rows {
+				if row.Name != "" {
+					packageNameList = append(packageNameList, row.Name)
 				}
 			}
-			pageIndex++
 		}
 	}
-	return strings.Join(removeDuplicates(packageNameList), ",")
+	return removeDuplicates(packageNameList), nil
 }
 
-// 获取所有 Package 信息
+// 获取所有 Package 信息（并发抓取）
+//
+// 以 [maxConcurrency] 为上限并发处理每个 package，结果按输入顺序返回，保证排序前顺序确定。
+// 任一 package 抓取失败将取消其余请求并整体返回错误。
 //
 // 参数:
-//   - [githubToken] Github Token
-//   - [packagesName] package 名称列表（逗号,分割）
+//   - [ctx]          上下文
+//   - [client]       共享 HTTP Client
+//   - [githubToken]  Github Token
+//   - [packageNames] package 名称列表（已去重清洗）
 //
 // 返回值:
-//   - [PackageInfo] 列表
-func getPackageInfo(githubToken string, packagesName string) ([]PackageInfo, error) {
+//   - [PackageInfo] 列表（与 packageNames 顺序一致）
+func getPackageInfo(ctx context.Context, client *http.Client, githubToken string, packageNames []string) ([]PackageInfo, error) {
+	fmt.Println("📦", packageNames)
+	return concurrentMap(ctx, packageNames, maxConcurrency, func(ctx context.Context, name string) (PackageInfo, error) {
+		fmt.Println("📦🔥 " + name)
+		info, err := fetchPackage(ctx, client, githubToken, name)
+		if err != nil {
+			return PackageInfo{}, err
+		}
+		if info.Code == 1 {
+			fmt.Printf("📦✅ %s, Code: 1\n", name)
+		} else {
+			fmt.Printf("📦❌ %s, Code: 0\n", name)
+		}
+		return info, nil
+	})
+}
+
+// 抓取单个 package 的全部信息（ohpm 基础信息 -> 描述 -> Github 信息）
+//
+// 参数:
+//   - [ctx]         上下文
+//   - [client]      共享 HTTP Client
+//   - [githubToken] Github Token
+//   - [name]        package 名称
+//
+// 返回值:
+//   - [PackageInfo]，包不存在时 Code=0（降级展示为 ⁉️，非错误）
+func fetchPackage(ctx context.Context, client *http.Client, githubToken string, name string) (PackageInfo, error) {
 	printErrTitle := "📦⚠️ PackageInfo: "
-	packageList := removeDuplicates(strings.Split(packagesName, ","))
-	fmt.Println("📦", packageList)
-	packageInfoList := []PackageInfo{}
-	for _, value := range packageList {
-		if value == "" {
-			continue
-		}
-		fmt.Println("📦🔥 " + value)
-		packageName := strings.TrimSpace(value)
-		res, err := http.Get(fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/detail/%s", url.PathEscape(packageName)))
-		if err != nil {
-			return nil, fmt.Errorf("%s%w", printErrTitle, err)
-		}
-		jsonData, err := io.ReadAll(res.Body)
-		res.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("%s%w", printErrTitle, err)
-		}
-		var data PackageBaseInfo
-		if err := json.Unmarshal(jsonData, &data); err != nil {
-			fmt.Println(printErrTitle, err)
-		}
-		if data.Body.Name == "" {
-			// 无法获取信息
-			packageInfoList = append(packageInfoList, PackageInfo{Code: 0, Name: packageName})
-			fmt.Printf("📦❌ %s, Code: 0\n", packageName)
-			continue
-		}
-
-		// 可获取信息
-		packageInfo := PackageInfo{
-			Code:        1,
-			Name:        data.Body.Name,
-			Version:     data.Body.Version,
-			LicenseName: data.Body.License,
-			Homepage:    data.Body.Homepage,
-			Repository:  data.Body.Repository,
-			PublishTime: data.Body.PublishTime,
-			Points:      data.Body.Points,
-			MaxPoints:   data.Body.PointDetail.Point,
-			Likes:       data.Body.Likes,
-			Popularity:  data.Body.Popularity,
-			Downloads:   data.Body.Downloads,
-		}
-
-		packageDescription, err := getPackageDescriptionInfo(data.Body.Name)
-		if err != nil {
-			return nil, err
-		}
-		packageInfo.Description = packageDescription
-
-		if err := getGithubInfo(githubToken, &packageInfo); err != nil {
-			return nil, err
-		}
-		packageInfoList = append(packageInfoList, packageInfo)
-		fmt.Println("📦✅ " + packageName + ", Code: 1")
+	rawURL := fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/detail/%s", url.PathEscape(name))
+	body, status, err := httpGetWithRetry(ctx, client, rawURL, nil)
+	if err != nil {
+		return PackageInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
 	}
-	return packageInfoList, nil
+	// 404：包不存在 -> 降级
+	if status == http.StatusNotFound {
+		return PackageInfo{Code: 0, Name: name}, nil
+	}
+	if status != http.StatusOK {
+		return PackageInfo{}, fmt.Errorf("%s%s: unexpected status %d", printErrTitle, name, status)
+	}
+	var data PackageBaseInfo
+	if err := json.Unmarshal(body, &data); err != nil {
+		return PackageInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
+	}
+	if data.Body.Name == "" {
+		return PackageInfo{Code: 0, Name: name}, nil
+	}
+
+	packageInfo := PackageInfo{
+		Code:        1,
+		Name:        data.Body.Name,
+		Version:     data.Body.Version,
+		LicenseName: data.Body.License,
+		Homepage:    data.Body.Homepage,
+		Repository:  data.Body.Repository,
+		PublishTime: data.Body.PublishTime,
+		Points:      data.Body.Points,
+		MaxPoints:   data.Body.PointDetail.Point,
+		Likes:       data.Body.Likes,
+		Popularity:  data.Body.Popularity,
+		Downloads:   data.Body.Downloads,
+	}
+
+	description, err := getPackageDescriptionInfo(ctx, client, data.Body.Name)
+	if err != nil {
+		return PackageInfo{}, err
+	}
+	packageInfo.Description = description
+
+	if err := getGithubInfo(ctx, client, githubToken, &packageInfo); err != nil {
+		return PackageInfo{}, err
+	}
+	return packageInfo, nil
 }
 
 // 获取 Package 描述信息
 //
 // 参数:
+//   - [ctx]         上下文
+//   - [client]      共享 HTTP Client
 //   - [packageName] 单个 package 名称
 //
 // 返回值:
-//   - Package 描述信息
-func getPackageDescriptionInfo(packageName string) (string, error) {
+//   - Package 描述信息（404 时降级为空）
+func getPackageDescriptionInfo(ctx context.Context, client *http.Client, packageName string) (string, error) {
 	printErrTitle := "📦⚠️ PackageDescriptionInfo: "
-	res, err := http.Get(fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?condition=name:%s&pageNum=1&pageSize=10&sortedType=relevancy&isHomePage=false", url.PathEscape(packageName)))
+	rawURL := fmt.Sprintf("https://ohpm.openharmony.cn/ohpmweb/registry/oh-package/openapi/v1/search?condition=name:%s&pageNum=1&pageSize=10&sortedType=relevancy&isHomePage=false", url.PathEscape(packageName))
+	body, status, err := httpGetWithRetry(ctx, client, rawURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("%s%w", printErrTitle, err)
 	}
-	jsonData, err := io.ReadAll(res.Body)
-	res.Body.Close()
-	if err != nil {
-		return "", fmt.Errorf("%s%w", printErrTitle, err)
+	if status == http.StatusNotFound {
+		return "", nil // 无描述数据 -> 降级
+	}
+	if status != http.StatusOK {
+		return "", fmt.Errorf("%s%s: unexpected status %d", printErrTitle, packageName, status)
 	}
 	var data PackageDescriptionInfo
-	if err := json.Unmarshal(jsonData, &data); err != nil {
+	if err := json.Unmarshal(body, &data); err != nil {
 		return "", fmt.Errorf("%s%w", printErrTitle, err)
 	}
-
 	if len(data.Body.Rows) > 0 {
 		return data.Body.Rows[0].Description, nil
 	}
@@ -333,117 +374,115 @@ func getPackageDescriptionInfo(packageName string) (string, error) {
 // 处理 [PackageInfo] 中 GithubUser, GithubRepo, GithubBaseInfo, GithubContributorsInfo 的值
 //
 // 参数:
+//   - [ctx]         上下文
+//   - [client]      共享 HTTP Client
 //   - [githubToken] Github Token
 //   - [packageInfo] 当前 package 信息
-func getGithubInfo(githubToken string, packageInfo *PackageInfo) error {
+func getGithubInfo(ctx context.Context, client *http.Client, githubToken string, packageInfo *PackageInfo) error {
 	if packageInfo.Code == 0 {
 		return nil
 	}
-	finish := false
-	var user, repo string
-	user, repo = formatGithubInfo(packageInfo.Repository)
-	if repo != "" && !finish {
-		packageInfo.GithubUser = user
-		packageInfo.GithubRepo = repo
-		finish = true
-	}
-	user, repo = formatGithubInfo(packageInfo.Homepage)
-	if repo != "" && !finish {
-		packageInfo.GithubUser = user
-		packageInfo.GithubRepo = repo
-		finish = true
-	}
-	// 获取 Github 相关信息
-	if packageInfo.GithubUser != "" && packageInfo.GithubRepo != "" {
-		githubBaseInfo, err := getGithubBaseInfo(githubToken, packageInfo.GithubUser, packageInfo.GithubRepo)
-		if err != nil {
-			return err
+	// 依次尝试 Repository、Homepage 解析 Github 地址，取首个命中
+	for _, link := range []string{packageInfo.Repository, packageInfo.Homepage} {
+		if user, repo := formatGithubInfo(link); repo != "" {
+			packageInfo.GithubUser = user
+			packageInfo.GithubRepo = repo
+			break
 		}
-		packageInfo.GithubBaseInfo = githubBaseInfo
+	}
+	if packageInfo.GithubUser == "" || packageInfo.GithubRepo == "" {
+		return nil
+	}
 
-		githubContributorsInfo, contributorsTotal, err := getGithubContributorsInfo(githubToken, packageInfo.GithubUser, packageInfo.GithubRepo)
-		if err != nil {
-			return err
-		}
-		packageInfo.GithubContributorsInfo = githubContributorsInfo
-		packageInfo.GithubBaseInfo.ContributorsTotal = contributorsTotal
+	githubBaseInfo, err := getGithubBaseInfo(ctx, client, githubToken, packageInfo.GithubUser, packageInfo.GithubRepo)
+	if err != nil {
+		return err
 	}
+	packageInfo.GithubBaseInfo = githubBaseInfo
+
+	githubContributorsInfo, contributorsTotal, err := getGithubContributorsInfo(ctx, client, githubToken, packageInfo.GithubUser, packageInfo.GithubRepo)
+	if err != nil {
+		return err
+	}
+	packageInfo.GithubContributorsInfo = githubContributorsInfo
+	packageInfo.GithubBaseInfo.ContributorsTotal = contributorsTotal
 	return nil
+}
+
+// 构造 GitHub API 通用请求头
+func githubHeaders(githubToken string) map[string]string {
+	return map[string]string{
+		"Authorization":        "bearer " + githubToken,
+		"Accept":               "application/vnd.github+json",
+		"X-GitHub-Api-Version": "2026-03-10",
+	}
 }
 
 // 获取 Github 基础信息
 //
 // 参数:
+//   - [ctx]         上下文
+//   - [client]      共享 HTTP Client
 //   - [githubToken] Github Token
-//   - [user] 用户
-//   - [repo] 仓库
+//   - [user]        用户
+//   - [repo]        仓库
 //
 // 返回值:
-//   - [GithubBaseInfo] 信息
-func getGithubBaseInfo(githubToken string, user string, repo string) (GithubBaseInfo, error) {
+//   - [GithubBaseInfo] 信息（404 时降级为空）
+func getGithubBaseInfo(ctx context.Context, client *http.Client, githubToken string, user string, repo string) (GithubBaseInfo, error) {
 	printErrTitle := "📦⚠️ GithubBaseInfo: "
-	client := &http.Client{}
-	resp, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/repos/%s/%s", user, repo), strings.NewReader(""))
+	rawURL := fmt.Sprintf("https://api.github.com/repos/%s/%s", user, repo)
+	body, status, err := httpGetWithRetry(ctx, client, rawURL, githubHeaders(githubToken))
 	if err != nil {
 		return GithubBaseInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
 	}
-	resp.Header.Set("Authorization", "bearer "+githubToken)
-	resp.Header.Set("Accept", "application/vnd.github+json")
-	resp.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	res, err := client.Do(resp)
-	if err != nil {
-		return GithubBaseInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
+	if status == http.StatusNotFound {
+		return GithubBaseInfo{}, nil // 仓库不存在 -> 降级
 	}
-	jsonData, err := io.ReadAll(res.Body)
-	res.Body.Close()
-	if err != nil {
-		return GithubBaseInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
+	if status != http.StatusOK {
+		return GithubBaseInfo{}, fmt.Errorf("%s%s/%s: unexpected status %d", printErrTitle, user, repo, status)
 	}
 	var data GithubBaseInfo
-	if err := json.Unmarshal(jsonData, &data); err != nil {
+	if err := json.Unmarshal(body, &data); err != nil {
 		return GithubBaseInfo{}, fmt.Errorf("%s%w", printErrTitle, err)
 	}
-
 	return data, nil
 }
 
 // 获取 Github 贡献者信息
 //
 // 参数:
+//   - [ctx]         上下文
+//   - [client]      共享 HTTP Client
 //   - [githubToken] Github Token
-//   - [user] 用户
-//   - [repo] 仓库
+//   - [user]        用户
+//   - [repo]        仓库
 //
 // 返回值:
-//   - [GithubContributorsInfo] 贡献者列表
-//   - 贡献者总数（最多100）
-func getGithubContributorsInfo(githubToken string, user string, repo string) ([]GithubContributorsInfo, int, error) {
+//   - [GithubContributorsInfo] 贡献者列表（前 3 位非 Bot）
+//   - 贡献者总数（最多 100；404/204 时为 0）
+func getGithubContributorsInfo(ctx context.Context, client *http.Client, githubToken string, user string, repo string) ([]GithubContributorsInfo, int, error) {
 	printErrTitle := "📦⚠️ GithubContributorsInfo: "
-	client := &http.Client{}
-	resp, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/repos/%s/%s/contributors?page=1&per_page=100", user, repo), strings.NewReader(""))
+	rawURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contributors?page=1&per_page=100", user, repo)
+	body, status, err := httpGetWithRetry(ctx, client, rawURL, githubHeaders(githubToken))
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s%w", printErrTitle, err)
 	}
-	resp.Header.Set("Authorization", "bearer "+githubToken)
-	resp.Header.Set("Accept", "application/vnd.github+json")
-	resp.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	res, err := client.Do(resp)
-	if err != nil {
-		return nil, 0, fmt.Errorf("%s%w", printErrTitle, err)
+	// 404（仓库不存在）/ 204（空仓库，无贡献者）-> 降级
+	if status == http.StatusNotFound || status == http.StatusNoContent {
+		return nil, 0, nil
 	}
-	jsonData, err := io.ReadAll(res.Body)
-	res.Body.Close()
-	if err != nil {
-		return nil, 0, fmt.Errorf("%s%w", printErrTitle, err)
+	if status != http.StatusOK {
+		return nil, 0, fmt.Errorf("%s%s/%s: unexpected status %d", printErrTitle, user, repo, status)
 	}
 	var data []GithubContributorsInfo
-	if err := json.Unmarshal(jsonData, &data); err != nil {
+	if err := json.Unmarshal(body, &data); err != nil {
 		return nil, 0, fmt.Errorf("%s%w", printErrTitle, err)
 	}
 
 	githubContributorsInfo := []GithubContributorsInfo{}
 	i := 1
-	/// 取前 3 位非 Bot 贡献者
+	// 取前 3 位非 Bot 贡献者
 	for _, value := range data {
 		if i > 3 {
 			break
@@ -456,6 +495,10 @@ func getGithubContributorsInfo(githubToken string, user string, repo string) ([]
 	return githubContributorsInfo, len(data), nil
 }
 
+// 匹配 github.com/ 之后的 user/repo 路径。
+// `.` 已转义，避免误匹配 githubXcom 等相似域名。
+var githubURLRegexp = regexp.MustCompile(`github\.com/(.+)`)
+
 // 格式化 Github 信息
 //
 // 参数:
@@ -466,12 +509,17 @@ func getGithubContributorsInfo(githubToken string, user string, repo string) ([]
 //   - githubRepo 信息
 func formatGithubInfo(value string) (string, string) {
 	var githubUser, githubRepo string
-	result := regexp.MustCompile(`(?:github.com/).*`).FindAllString(value, -1)
-	if result != nil {
-		info := strings.Split(result[0], "/")
-		if len(info) >= 3 {
-			githubUser = info[1]
-			githubRepo = strings.ReplaceAll(info[2], ".git", "")
+	result := githubURLRegexp.FindStringSubmatch(value)
+	if len(result) >= 2 {
+		info := strings.Split(result[1], "/")
+		if len(info) >= 2 && info[0] != "" && info[1] != "" {
+			githubUser = info[0]
+			repo := info[1]
+			// 去除 query/fragment 尾巴（如 ?tab=、#readme）及 .git 后缀
+			if i := strings.IndexAny(repo, "#?"); i >= 0 {
+				repo = repo[:i]
+			}
+			githubRepo = strings.TrimSuffix(repo, ".git")
 		}
 	}
 	return githubUser, githubRepo
@@ -696,7 +744,7 @@ func updateMarkdownTable(filename string, markdown string) error {
 	reg := regexp.MustCompile(begin + "(?s)(.*?)" + end)
 	newMd := reg.ReplaceAll(md, newMdText.Bytes())
 
-	err = os.WriteFile(filename, newMd, os.ModeAppend)
+	err = os.WriteFile(filename, newMd, 0644)
 	if err != nil {
 		return fmt.Errorf("📄❌ updateMarkdownTable: Error writing a file: %w", err)
 	}
@@ -727,12 +775,160 @@ func updateMarkdownPackageTotal(filename string, total int) error {
 	reg := regexp.MustCompile(begin + "(?s)(.*?)" + end)
 	newMd := reg.ReplaceAll(md, newMdText.Bytes())
 
-	err = os.WriteFile(filename, newMd, os.ModeAppend)
+	err = os.WriteFile(filename, newMd, 0644)
 	if err != nil {
 		return fmt.Errorf("📄❌ updateMarkdownPackageTotal: Error writing a file: %w", err)
 	}
 	fmt.Println("📄✅ updateMarkdownPackageTotal: Success")
 	return nil
+}
+
+// 创建带超时的共享 HTTP Client。
+//
+// 复用同一个 Client 可共享连接池；
+// Timeout 防止单个请求挂起拖垮整个流程。
+func newHTTPClient() *http.Client {
+	return &http.Client{Timeout: httpTimeout}
+}
+
+// concurrentMap 以 [concurrency] 为上限并发地将 fn 应用到每个 item，
+// 结果按输入顺序写入返回切片（result[i] 对应 items[i]）。
+//
+// 任一 fn 返回错误即取消其余任务并返回首个错误。
+// 由于每个 goroutine 只写入互不重叠的 result[i]，无需对结果加锁。
+//
+// 参数:
+//   - [ctx]         上下文（用于取消与超时传播）
+//   - [items]       输入切片
+//   - [concurrency] 并发数上限
+//   - [fn]          处理函数
+//
+// 返回值:
+//   - [results]     结果切片（与 items 顺序一致）
+//   - [error]       任一 fn 返回错误时非 nil
+func concurrentMap[T any, R any](ctx context.Context, items []T, concurrency int, fn func(context.Context, T) (R, error)) ([]R, error) {
+	results := make([]R, len(items))
+	if len(items) == 0 {
+		return results, nil
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		waitGroup sync.WaitGroup
+		mutex     sync.Mutex
+		firstErr  error
+	)
+	semaphore := make(chan struct{}, concurrency)
+
+	for i, item := range items {
+		waitGroup.Add(1)
+		go func(i int, item T) {
+			defer waitGroup.Done()
+
+			// 并发限流，若已取消则直接放弃
+			select {
+			case semaphore <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-semaphore }()
+
+			r, err := fn(ctx, item)
+			if err != nil {
+				mutex.Lock()
+				if firstErr == nil {
+					firstErr = err
+					cancel() // fail-fast：取消其余在途/未启动任务
+				}
+				mutex.Unlock()
+				return
+			}
+			results[i] = r
+		}(i, item)
+	}
+	waitGroup.Wait()
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return results, nil
+}
+
+// 带重试的 HTTP GET 请求
+//
+// 对传输层错误、429 (Too Many Requests)、403 (限流/鉴权)、5xx 进行指数退避重试，
+// 最多尝试 [maxAttempts] 次；退避期间响应 ctx 取消。
+//
+// 仅负责传输 + 重试瞬时故障，状态码的业务语义（如 404 的含义）
+// 由调用方根据返回的 status 自行解释。
+//
+// 参数:
+//   - [ctx]     上下文（用于取消与超时传播）
+//   - [client]  共享 HTTP Client
+//   - [rawURL]  请求地址
+//   - [headers] 附加请求头（可为 nil）
+//
+// 返回值:
+//   - 响应体
+//   - HTTP 状态码
+//   - 错误（传输层彻底失败或重试耗尽时非 nil）
+func httpGetWithRetry(ctx context.Context, client *http.Client, rawURL string, headers map[string]string) ([]byte, int, error) {
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// 退避（首次不等待）：500ms, 1s, 2s ...
+		if attempt > 1 {
+			delay := retryBaseDelay * time.Duration(1<<(attempt-2))
+			select {
+			case <-ctx.Done():
+				return nil, 0, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		if err != nil {
+			return nil, 0, err // 构造请求失败不可恢复
+		}
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
+
+		res, err := client.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, 0, ctx.Err() // 已取消则立即返回
+			}
+			lastErr = err
+			continue
+		}
+
+		body, readErr := io.ReadAll(res.Body)
+		res.Body.Close()
+		status := res.StatusCode
+
+		if readErr != nil {
+			if ctx.Err() != nil {
+				return nil, status, ctx.Err()
+			}
+			lastErr = readErr
+			continue
+		}
+
+		// 可重试的状态码：限流与服务端错误
+		if status == http.StatusTooManyRequests || status == http.StatusForbidden || status >= 500 {
+			lastErr = fmt.Errorf("unexpected status %d", status)
+			continue
+		}
+
+		// 成功或不可重试的状态码（2xx、404 等），交由调用方判断
+		return body, status, nil
+	}
+	return nil, 0, fmt.Errorf("After %d attempts: %w", maxAttempts, lastErr)
 }
 
 // 由于直接获取 GithubContributorsInfo.AvatarUrl 有可能会是私有头像地址，
@@ -782,19 +978,19 @@ func formatNumber(num int) string {
 	return formatted + suffix
 }
 
-// 去重
+// 去重并保持首次出现的顺序，同时去除首尾空白与空字符串
 func removeDuplicates(arr []string) []string {
-	uniqueMap := make(map[string]bool)
+	seen := make(map[string]bool, len(arr))
+	result := []string{}
 	for _, v := range arr {
-		if _, ok := uniqueMap[v]; !ok {
-			uniqueMap[v] = true
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
 		}
+		seen[v] = true
+		result = append(result, v)
 	}
-	var uniqueArr []string
-	for k := range uniqueMap {
-		uniqueArr = append(uniqueArr, k)
-	}
-	return uniqueArr
+	return result
 }
 
 func timestampFormat(millisecondTimestamp int) string {

@@ -1,6 +1,12 @@
 # Changelog
 
-## (Unreleased)
+## 1.0.3
+
+### Improvements
+
+- Fetch packages concurrently for faster runs.
+- Add a request timeout and a shared HTTP client.
+- Retry transient network/5xx/429/403 errors with backoff.
 
 ## 1.0.2
 
