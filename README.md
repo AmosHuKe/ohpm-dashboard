@@ -21,8 +21,9 @@ Example: [Example.md](Example.md)
 2.Enable read/write permissions
 
 (recommend) If you use a `Personal access token`:
-> e.g. github_token: ${{ secrets.xxxxxx }} (ghp_xxxxx)  
-> Create a token (enable repo permissions) https://github.com/settings/tokens/
+> e.g. github_token: ${{ secrets.xxxxxx }} (github_pat_xxxxx)  
+> Create a token (enable repo permissions) https://github.com/settings/personal-access-tokens  
+> Permissions: Contents - Read and write  
 
 If you use the current repo's token:
 > e.g. github_token: ${{ secrets.GITHUB_TOKEN }}  
@@ -38,6 +39,8 @@ jobs:
   ohpm-dashboard-job:
     runs-on: ubuntu-latest
     name: ohpm-dashboard
+    permissions:
+      contents: write
     steps:
       - name: run ohpm-dashboard
         uses: AmosHuKe/ohpm-dashboard@v1
